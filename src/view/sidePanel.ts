@@ -54,6 +54,10 @@ export function setupSidePanel(side: HTMLElement, foldedAtFirst: readonly string
   });
   window.addEventListener('resize', () => setWidth(side.getBoundingClientRect().width));
 
+  // The panel stops where the timeline starts, which is full width along the bottom.
+  const timeline = document.getElementById('timeline');
+  if (timeline) new ResizeObserver(() => root.style.setProperty('--timeline-height', `${timeline.offsetHeight}px`)).observe(timeline);
+
   let folded: string[] = [...foldedAtFirst];
   const savedFolds = remembered(FOLDED_KEY);
   if (savedFolds !== null) {
