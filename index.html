@@ -12,6 +12,8 @@
         --panel: rgba(20, 27, 39, 0.9);
         --raised: rgba(34, 45, 62, 0.9);
         --field: #0e141f;
+        --pane-head: #19212e;
+        --pane-head-hover: #1f2938;
         --border: #2a3547;
         --border-strong: #3a475c;
         --text: #d5dde8;
@@ -69,20 +71,21 @@
       #epoch { top: 12px; left: 50%; transform: translateX(-50%); padding: 6px 14px; border-radius: 999px; font-size: 14px; font-variant-numeric: tabular-nums; pointer-events: none; }
       #epoch small { color: var(--muted); font-size: var(--font-small); margin-left: 6px; }
 
-      /* Right panel: docked to the right edge; sections are cards that take only the room they need */
-      #side { top: 0; right: 0; bottom: var(--timeline-height, 66px); width: var(--side-width, 240px); overflow-y: auto; padding: 8px; align-content: start; grid-auto-rows: max-content; border-width: 0 0 0 1px; border-radius: 0; display: grid; gap: 8px; }
-      #side section { display: grid; background: var(--raised); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+      /* Right panel: docked to the right edge, like a VS Code side bar. Each section is a pane with a title bar. */
+      #side { top: 0; right: 0; bottom: var(--timeline-height, 66px); width: var(--side-width, 240px); overflow-y: auto; padding: 0; align-content: start; grid-auto-rows: max-content; border-width: 0 0 0 1px; border-radius: 0; display: grid; gap: 0; }
+      #side section { display: grid; background: var(--raised); border-bottom: 1px solid var(--border); }
       #side section, #side .sectionBody, #side label { min-width: 0; }
       #side section, #side .sectionBody { grid-template-columns: minmax(0, 1fr); }
       #side select, #side input { min-width: 0; max-width: 100%; }
-      #side .sectionBody { display: grid; gap: 10px; padding: 10px 12px 12px; border-top: 1px solid var(--border); }
+      #side .sectionBody { display: grid; gap: 10px; padding: 12px; }
       #side section.folded .sectionBody { display: none; }
-      #side .sectionBody > button { justify-self: center; width: 100%; max-width: 180px; }
-      #side h2 { padding: 9px 12px; }
-      #side h2[role="button"] { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
-      #side h2[role="button"]::before { content: '\25BE'; font-size: 10px; transition: transform 0.12s; }
+      #side h2 { position: sticky; top: 0; z-index: 2; height: 26px; padding: 0 12px 0 6px; background: var(--pane-head); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 4px; }
+      #side section.folded h2 { border-bottom: 0; }
+      #side h2[role="button"] { cursor: pointer; user-select: none; }
+      #side h2[role="button"]::before { content: '\25BE'; display: inline-block; width: 16px; text-align: center; font-size: 12px; transition: transform 0.12s; }
       #side section.folded h2[role="button"]::before { transform: rotate(-90deg); }
-      #side h2[role="button"]:hover { color: var(--text); background: var(--hover); }
+      #side h2[role="button"]:hover { color: var(--text); background: var(--pane-head-hover); }
+      #side h2[role="button"]:focus-visible { outline-offset: -2px; }
       #side hr { width: 100%; margin: 2px 0; border: 0; border-top: 1px solid var(--border); }
       #sideGrip { position: fixed; top: 0; right: calc(var(--side-width, 240px) - 4px); width: 8px; z-index: 5; cursor: ew-resize; touch-action: none; }
       #sideGrip:hover, #sideGrip:active { background: rgba(90, 169, 255, 0.4); }
@@ -166,7 +169,9 @@
           </select>
         </label>
         <button id="regen">New world</button>
-        <hr />
+      </section>
+      <section>
+        <h2>Land</h2>
         <label>Land style
           <select id="landStyle">
             <option value="continents" selected>Continents</option>
@@ -179,7 +184,9 @@
           <input id="landCover" type="range" min="5" max="60" step="1" value="30" />
         </label>
         <button id="generate" class="primary">Generate land</button>
-        <hr />
+      </section>
+      <section>
+        <h2>Planet</h2>
         <label>Axial tilt <span id="tiltReadout">23°</span>
           <input id="tilt" type="range" min="0" max="45" step="1" value="23" />
         </label>
@@ -224,9 +231,9 @@
         </label>
         <label class="check"><input id="edges" type="checkbox" /> Show cell edges</label>
         <label class="check"><input id="plateOutlines" type="checkbox" /> Plate outlines</label>
-        <label class="check"><input id="water" type="checkbox" checked /> Rivers and lakes</label>
         <label class="check"><input id="winds" type="checkbox" /> Prevailing winds</label>
-        <label>Rivers shown <input id="riverDensity" type="range" min="80" max="99.5" step="0.5" value="96" /></label>
+        <label class="check"><input id="water" type="checkbox" checked /> Rivers and lakes</label>
+        <label>Rivers shown <span id="riverReadout"></span> <input id="riverDensity" type="range" min="0.5" max="20" step="0.5" value="4" /></label>
         <label class="check"><input id="guideAxis" type="checkbox" /> Rotation axis</label>
         <label class="check"><input id="guideEquator" type="checkbox" /> Equator</label>
         <label class="check"><input id="guideTropics" type="checkbox" /> Tropics</label>

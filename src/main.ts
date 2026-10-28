@@ -373,7 +373,7 @@ function updateRivers(): void {
   // at every detail level and in wet and dry worlds alike.
   const flows = Array.from(water.discharge).filter((q) => q > 0).sort((a, b) => a - b);
   if (flows.length === 0) return;
-  const cut = Math.min(flows.length - 1, Math.floor((Number(riverDensityInput.value) / 100) * flows.length));
+  const cut = Math.min(flows.length - 1, Math.floor(((100 - Number(riverDensityInput.value)) / 100) * flows.length));
   const threshold = Math.max(flows[cut]!, 1e-9);
   const biggest = flows[flows.length - 1]!;
 
@@ -427,7 +427,21 @@ waterToggle.addEventListener('change', () => {
   ensureClimateForLayer();
   recolor();
 });
+/** The slider is the share of flows drawn as rivers, the largest first: further right means more rivers. */
+function updateRiverReadout(): void {
+  const share = Number(riverDensityInput.value);
+  document.getElementById('riverReadout')!.textContent = `largest ${Number.isInteger(share) ? share : share.toFixed(1)}% of flows`;
+}
+riverDensityInput.addEventListener('input', updateRiverReadout);
+updateRiverReadout();
 riverDensityInput.addEventListener('input', updateRivers);
+
+/** The river slider only matters while rivers are drawn, so it is shown only then. */
+function showRiverSlider(): void {
+  riverDensityInput.closest('label')!.hidden = !waterToggle.checked;
+}
+waterToggle.addEventListener('change', showRiverSlider);
+showRiverSlider();
 
 let climateTimer: number | undefined;
 
@@ -615,7 +629,7 @@ function updateLegend(): void {
 }
 
 /** Repaint the cells; `withRivers` is false while painting, when rebuilding the river lines on every dab would be wasteful. */
-const openSection = setupSidePanel(document.querySelector<HTMLElement>('#side')!, ['Brush', 'View', 'Save and export']);
+const openSection = setupSidePanel(document.querySelector<HTMLElement>('#side')!, ['Planet', 'Brush', 'View', 'Save and export']);
 
 const epochLabel = document.querySelector<HTMLElement>('#epoch')!;
 
