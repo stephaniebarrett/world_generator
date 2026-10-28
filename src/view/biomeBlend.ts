@@ -8,7 +8,7 @@ type Rgb = readonly [number, number, number];
 const T_MIN = -30, T_STEP = 0.5, T_COLS = 141; // -30 to 40 C
 const P_MIN = 25, P_ROWS = 193, P_PER_OCTAVE = 24; // 25 to 6,400 mm, log scale
 /** Blur widths: degrees C, and octaves of rainfall (the boundaries lie 1.2-1.5 octaves apart). */
-const T_SIGMA = 2.5, P_SIGMA = 0.28;
+const T_SIGMA = 3, P_SIGMA = 0.4;
 
 const clamp = (x: number, lo: number, hi: number) => (x < lo ? lo : x > hi ? hi : x);
 const smooth = (a: number, b: number, x: number) => {

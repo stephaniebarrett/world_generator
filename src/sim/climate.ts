@@ -105,6 +105,26 @@ export function cellKm(lattice: Lattice): number {
   return 1.0746 * Math.sqrt((4 * Math.PI) / lattice.vertexCount) * EARTH_RADIUS_KM;
 }
 
+/**
+ * Soften rainfall across neighbouring points. A cell is a few hundred km across at low detail, so one steep slope or belt edge
+ * would otherwise step the rainfall (and the biomes drawn from it) sharply from cell to cell. The number of passes follows the
+ * cell size, so the softening is about the same distance (a few hundred km) at every detail level.
+ */
+function smoothRain(lattice: Lattice, rain: Float32Array, km: number): void {
+  const { offsets, neighbors } = lattice;
+  const passes = clamp(Math.round((300 / km) * (300 / km)), 1, 6);
+  let from = Float64Array.from(rain), to = new Float64Array(rain.length);
+  for (let pass = 0; pass < passes; pass++) {
+    for (let v = 0; v < rain.length; v++) {
+      let sum = 0;
+      for (let k = offsets[v]!; k < offsets[v + 1]!; k++) sum += from[neighbors[k]!]!;
+      to[v] = 0.5 * from[v]! + (0.5 * sum) / (offsets[v + 1]! - offsets[v]!);
+    }
+    [from, to] = [to, from];
+  }
+  for (let v = 0; v < rain.length; v++) rain[v] = from[v]!;
+}
+
 export function computeClimate(lattice: Lattice, elevation: ArrayLike<number>, params: ClimateParams = DEFAULT_CLIMATE): Climate {
   const n = lattice.vertexCount;
   const { positions, offsets, neighbors } = lattice;
@@ -262,6 +282,7 @@ export function computeClimate(lattice: Lattice, elevation: ArrayLike<number>, p
     }
     const precip = new Float32Array(n);
     for (let v = 0; v < n; v++) precip[v] = rain[v]!;
+    smoothRain(lattice, precip, km);
     precipitation.push(precip);
   }
 
