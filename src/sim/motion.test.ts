@@ -29,7 +29,7 @@ describe('plate motion', () => {
         const c: [number, number, number] = [lattice.positions[p.seedVertex * 3]!, lattice.positions[p.seedVertex * 3 + 1]!, lattice.positions[p.seedVertex * 3 + 2]!];
         const { drift, spin } = driftAndSpin(c, [p.axis[0] * p.angularSpeed, p.axis[1] * p.angularSpeed, p.axis[2] * p.angularSpeed]);
         expect(drift).toBeGreaterThan(0.0015);
-        expect(drift).toBeLessThan(0.02);
+        expect(drift).toBeLessThan(0.025);
         if (Math.abs(spin) > 0.0005) spun++;
         total++;
       }

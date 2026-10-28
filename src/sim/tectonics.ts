@@ -106,7 +106,7 @@ const PLATE_DRIVE = 0.12;
  * other at this rate per My at full grip, and the motion each plate is driven toward moves at half that rate, so the change lasts.
  * Gentle: over a 200 My run a plate is moved a good way toward its neighbours, not made to match them.
  */
-const NEIGHBOUR_DRAG = 0.003;
+const NEIGHBOUR_DRAG = 0.0008;
 /** Border contacts (crust points within reach of the other plate per step) at which half the grip is reached. */
 const DRAG_HALF_CONTACTS = 12;
 /** A lattice vertex counts as a hole when no crust point is closer than this. */

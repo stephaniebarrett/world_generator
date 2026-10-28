@@ -168,7 +168,9 @@ describe('generated worlds have Earth-like relief', () => {
   it('has Earth-like mean height and shares of high ground, with mountains that reach several km', () => {
     const h = sample();
     expect(h.mean).toBeGreaterThan(650);
-    expect(h.mean).toBeLessThan(1050);
+    // Earth's land averages 840 m. The plates start out faster than they once did (so the simulation keeps its mountains), which raises
+    // the generated relief a little; the simulation then wears it down.
+    expect(h.mean).toBeLessThan(1200);
     expect(h.over1).toBeGreaterThan(0.15);
     expect(h.over1).toBeLessThan(0.38);
     expect(h.over2).toBeGreaterThan(0.04);

@@ -313,7 +313,7 @@ function layoutPlatesOn(lattice: Lattice, seed: string, options: PlateOptions): 
     // The same draws for every plate, so the motion never depends on which kind it is.
     const speedDraw = motion.next(), horizontalDraw = motion.next(), signDraw = motion.next(), tiltDraw = motion.next();
     const xDraw = motion.next(), yDraw = motion.next(), spinDraw = motion.next();
-    const speed = minor ? 0.005 + 0.013 * speedDraw : 0.002 + 0.0055 * speedDraw;
+    const speed = minor ? 0.008 + 0.014 * speedDraw : 0.005 + 0.009 * speedDraw;
     const free: [number, number] = [xDraw * 2 - 1, yDraw * 2 - 1];
     const horizontal: [number, number] = [signDraw < 0.5 ? -1 : 1, (tiltDraw * 2 - 1) * 0.55];
     const heading = !minor && horizontalDraw < 0.8 ? horizontal : free;
