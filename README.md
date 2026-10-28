@@ -10,7 +10,7 @@ Everything runs in your browser. There is no server and no account.
 - **Edit the plates.** The tool divides the world into tectonic plates, which you can add, remove, drag or repaint, and give a direction and speed.
 - **Simulate.** Plates move, collide, rift and subduct; hotspots build volcano chains; rivers and rain erode the land; the sea floor sinks as it ages. Climate (temperature, winds, rain, rain shadows), rivers, lakes and biomes are worked out at each saved keyframe.
 - **Scrub through time.** A timeline lets you look at the world at any keyframe from 0 to 200 My after the simulation has completed.
-- **Look at it many ways.** Layers for elevation, plates, temperature, rainfall, biomes and geology; plate outlines, prevailing-wind arrows, rivers and lakes, and reference lines (axis, equator, tropics, polar circles).
+- **Look at it many ways.** Layers for elevation, plates, temperature, rainfall, biomes and geology; plate outlines, wind and ocean-current arrows, rivers and lakes, and reference lines (axis, equator, tropics, polar circles).
 - **Export.** Save and reopen worlds as JSON, and export flat maps as PNG in nine projections.
 
 The same seed, settings and edits always give the same world, on any machine. Different detail levels give similar but not identical worlds.
@@ -72,9 +72,9 @@ Editing the world clears the simulation, so run it again to see an edit's effect
 
 In the **View** section:
 
-- **Layer:** elevation, plates, temperature, rainfall, biomes, geology (rock type), wind currents or ocean currents. A legend appears under it. The two current layers draw arrows that are longer and warmer-coloured where the flow is faster.
+- **Layer:** elevation, plates, temperature, rainfall, biomes or geology (rock type). A legend appears under it.
 - **Height Exaggeration** stretches the relief so mountains stand out.
-- Switches for cell edges, plate outlines, rivers and lakes, prevailing winds, and reference lines. **Rivers Shown** sets how many rivers are drawn.
+- Switches for plate outlines, rivers and lakes, wind currents, ocean currents, and reference lines. The two current switches draw arrows over whichever layer is showing, longer and warmer-coloured where the flow is faster. **Rivers Shown** sets how many rivers are drawn.
 - **Circulation Detail** (in the World section) sets how far land is allowed to steer the sea and the air: ocean currents turn along coasts and carry warm or cold water, land heating bends the winds (monsoons), and mountains turn the wind aside. Off keeps the plain wind belts. Higher levels settle further but take longer at each keyframe, and a new level applies after **Recompute Climate** or the next run.
 - **Render Detail** (in the World section) sets how finely the globe is drawn, separately from how finely it is simulated.
 

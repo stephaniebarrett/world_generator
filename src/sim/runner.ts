@@ -60,8 +60,14 @@ export function climateForThickness(frequency: number, thickness: ArrayLike<numb
   const elevation = new Float64Array(lattice.vertexCount);
   const sea = params.seaLevel ?? 0;
   for (let v = 0; v < elevation.length; v++) elevation[v] = elevationFromThickness(thickness[v]!) - sea;
-  const c = computeClimate(lattice, elevation, params);
-  const water = computeWater(lattice, elevation, c.meanPrecipitation, rock);
+  let c = computeClimate(lattice, elevation, params);
+  let water = computeWater(lattice, elevation, c.meanPrecipitation, rock);
+  // Lakes only exist once there is rain to fill them, and then they evaporate and soften the seasons around them: a second
+  // pass over the same land and sea (the ocean is not solved again) with the lakes in place. Its lakes are the ones kept.
+  if (water.lake.some((l) => l !== 0)) {
+    c = computeClimate(lattice, elevation, params, { lake: water.lake, ocean: c.ocean });
+    water = computeWater(lattice, elevation, c.meanPrecipitation, rock);
+  }
   return { temperature: c.meanTemperature, precipitation: c.meanPrecipitation, windEast: c.meanWindEast, windNorth: c.meanWindNorth, currentEast: c.currentEast, currentNorth: c.currentNorth, ...water };
 }
 

@@ -8,7 +8,7 @@ const MIN_LENGTH = 0.35;
 /** Flow slower than this is left out. */
 const CALM = 0.04;
 
-/** Slow to fast: blue, green, yellow, red. */
+/** Still to fast: blue, green, yellow, red. */
 export const FLOW_STOPS = [
   [0, 0.25, 0.45, 0.95],
   [0.33, 0.2, 0.8, 0.55],

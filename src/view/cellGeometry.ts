@@ -46,27 +46,6 @@ export function buildCellGeometry(lattice: Lattice, cells: CellMesh, cellColors:
   return geometry;
 }
 
-/** Cell outlines as line segments, slightly above the surface to avoid z-fighting. */
-export function buildCellEdges(cells: CellMesh, radius = 1.001): THREE.BufferGeometry {
-  const { offsets, cornerIds, corners } = cells;
-  const seg = new Float32Array(cornerIds.length * 2 * 3);
-  let o = 0;
-  for (let c = 0; c < cells.cellCount; c++) {
-    const start = offsets[c]!;
-    const n = offsets[c + 1]! - start;
-    for (let k = 0; k < n; k++) {
-      for (const id of [cornerIds[start + k]!, cornerIds[start + ((k + 1) % n)]!]) {
-        seg[o++] = corners[id * 3]! * radius;
-        seg[o++] = corners[id * 3 + 1]! * radius;
-        seg[o++] = corners[id * 3 + 2]! * radius;
-      }
-    }
-  }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(seg, 3));
-  return geometry;
-}
-
 /** Rewrite per-cell colours in place (same fan layout as buildCellGeometry). */
 export function updateCellColors(geometry: THREE.BufferGeometry, cells: CellMesh, cellColors: Float32Array): void {
   const attr = geometry.getAttribute('color') as THREE.BufferAttribute;
@@ -129,24 +108,4 @@ export function updateCellHeights(
   attr.needsUpdate = true;
   if (withNormals) geometry.computeVertexNormals();
   return cornerRadius;
-}
-
-/** Keep the cell outlines on the raised surface. */
-export function updateEdgeHeights(geometry: THREE.BufferGeometry, cells: CellMesh, cornerRadius: Float64Array): void {
-  const attr = geometry.getAttribute('position') as THREE.BufferAttribute;
-  const seg = attr.array as Float32Array;
-  let o = 0;
-  for (let c = 0; c < cells.cellCount; c++) {
-    const start = cells.offsets[c]!;
-    const n = cells.offsets[c + 1]! - start;
-    for (let k = 0; k < n; k++) {
-      for (const id of [cells.cornerIds[start + k]!, cells.cornerIds[start + ((k + 1) % n)]!]) {
-        const r = cornerRadius[id]! + 0.0008;
-        seg[o++] = cells.corners[id * 3]! * r;
-        seg[o++] = cells.corners[id * 3 + 1]! * r;
-        seg[o++] = cells.corners[id * 3 + 2]! * r;
-      }
-    }
-  }
-  attr.needsUpdate = true;
 }

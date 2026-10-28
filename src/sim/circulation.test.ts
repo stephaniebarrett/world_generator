@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CLIMATE, computeClimate } from './climate';
 import { buildLattice } from './lattice';
+
+// Each climate solve with circulation takes about a second, and several run in a test, so allow for a busy machine.
+vi.setConfig({ testTimeout: 60000 });
 
 const lattice = buildLattice(40);
 const N = lattice.vertexCount;
@@ -70,5 +73,40 @@ describe('circulation', () => {
     const east = (v: number) => lat(v) > 25 && lat(v) < 50 && lon(v) > 60 && lon(v) < 80;
     const diff = Math.abs(mean(land.meanTemperature, west) - mean(open.meanTemperature, west)) + Math.abs(mean(land.meanTemperature, east) - mean(open.meanTemperature, east));
     expect(diff).toBeGreaterThan(0.3);
+  });
+});
+
+describe('lakes', () => {
+  // All land at 300 m with a lake 12 degrees across at 45N, 0E. The westerlies there blow from the west.
+  const land = new Float64Array(N).fill(300);
+  const lake = new Uint8Array(N);
+  const nearLake = (v: number, r: number) => Math.hypot(lat(v) - 45, Math.min(Math.abs(lon(v)), 360 - Math.abs(lon(v))) * Math.cos((45 * Math.PI) / 180)) < r;
+  for (let v = 0; v < N; v++) if (nearLake(v, 6)) lake[v] = 1;
+  const dry = computeClimate(lattice, land, DEFAULT_CLIMATE);
+  const wet = computeClimate(lattice, land, DEFAULT_CLIMATE, { lake });
+
+  it('rain more on the downwind shore than the same place with no lake', () => {
+    const downwind = (v: number) => lat(v) > 38 && lat(v) < 52 && lon(v) > 7 && lon(v) < 22;
+    expect(mean(wet.meanPrecipitation, downwind)).toBeGreaterThan(1.05 * mean(dry.meanPrecipitation, downwind));
+  });
+
+  it('keep the seasons milder over the lake than over land at the same latitude', () => {
+    const swing = (c: typeof dry, v: number) => Math.max(...c.temperature.map((t) => t[v]!)) - Math.min(...c.temperature.map((t) => t[v]!));
+    const centre = Array.from({ length: N }, (_, v) => v).filter((v) => lake[v] === 1);
+    const dryMean = centre.reduce((s, v) => s + swing(dry, v), 0) / centre.length;
+    const wetMean = centre.reduce((s, v) => s + swing(wet, v), 0) / centre.length;
+    expect(wetMean).toBeLessThan(0.7 * dryMean);
+  });
+});
+
+describe('sea and air together', () => {
+  it('lets warm and cold water change the wind, and keeps it deterministic', () => {
+    const a = computeClimate(lattice, elevation, on);
+    const b = computeClimate(lattice, elevation, on);
+    expect(Array.from(a.meanWindEast)).toEqual(Array.from(b.meanWindEast));
+    expect(Array.from(a.currentEast)).toEqual(Array.from(b.currentEast));
+    // A reused ocean gives the same climate as solving it again.
+    const again = computeClimate(lattice, elevation, on, { ocean: a.ocean });
+    expect(Array.from(again.meanPrecipitation)).toEqual(Array.from(a.meanPrecipitation));
   });
 });

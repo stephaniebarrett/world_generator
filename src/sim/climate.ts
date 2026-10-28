@@ -8,7 +8,7 @@
 // Latitude comes from z: the planet spins about the z axis. Only + - * / sqrt are used, plus a series
 // for the small sun-declination angle, so results are identical on every machine.
 
-import { bendWinds, localFrame, oceanCurrents, oceanHeatAnomaly, type CirculationLevel } from './circulation';
+import { bendWinds, localFrame, oceanCurrents, oceanHeatAnomaly, type CirculationLevel, type Currents } from './circulation';
 import type { Lattice } from './lattice';
 
 export interface ClimateParams {
@@ -43,6 +43,20 @@ export interface Climate {
   readonly meanWindNorth: Float32Array;
   readonly currentEast: Float32Array;
   readonly currentNorth: Float32Array;
+  /** The ocean's state, so a second pass over the same sea (with lakes added) need not solve it again. */
+  readonly ocean: OceanState | null;
+}
+
+export interface OceanState {
+  readonly currents: Currents;
+  readonly seaWarmth: Float32Array;
+}
+
+export interface ClimateExtras {
+  /** Lake mask (nonzero on lakes): water that evaporates and evens out the seasons like the sea, but is not the ocean. */
+  readonly lake?: ArrayLike<number>;
+  /** The ocean from an earlier pass over the same land, reused as is. */
+  readonly ocean?: OceanState | null;
 }
 
 const EARTH_RADIUS_KM = 6371;
@@ -133,7 +147,7 @@ function smoothRain(lattice: Lattice, rain: Float32Array, km: number): void {
   for (let v = 0; v < rain.length; v++) rain[v] = from[v]!;
 }
 
-export function computeClimate(lattice: Lattice, elevation: ArrayLike<number>, params: ClimateParams = DEFAULT_CLIMATE): Climate {
+export function computeClimate(lattice: Lattice, elevation: ArrayLike<number>, params: ClimateParams = DEFAULT_CLIMATE, extras: ClimateExtras = {}): Climate {
   const n = lattice.vertexCount;
   const { positions, offsets, neighbors } = lattice;
   const km = cellKm(lattice);
@@ -163,43 +177,14 @@ export function computeClimate(lattice: Lattice, elevation: ArrayLike<number>, p
     sunMean[v] = sum / SEASONS;
   }
 
-  // Land steering the sea and the air: ocean currents (from the year-round winds) and the warmth or cold they carry.
+  // Open water: the sea, and any lakes. Both feed moisture to the air and even out the seasons.
+  const lake = extras.lake;
+  const isWater = (v: number): boolean => elevation[v]! <= 0 || (lake !== undefined && lake[v]! !== 0);
+
+  /** The surface wind of a season (local east and north, and xyz), with the rain belts that go with it. Land and warm or cold sea bend it when circulation is on. */
   const level = params.circulation ?? 0;
   const frame = level > 0 ? localFrame(lattice) : null;
-  let currents: Float64Array | null = null;
-  let seaWarmth: Float32Array | null = null;
-  if (frame) {
-    const beltEast = new Float32Array(n), beltNorth = new Float32Array(n), equilibrium = new Float64Array(n);
-    for (let v = 0; v < n; v++) {
-      const [u, m] = prevailingWind(positions[v * 3 + 2]!, params);
-      beltEast[v] = u;
-      beltNorth[v] = m;
-      equilibrium[v] = -28 + 58 * sunMean[v]!;
-    }
-    currents = oceanCurrents(lattice, elevation, frame, beltEast, beltNorth, level, km);
-    seaWarmth = oceanHeatAnomaly(lattice, elevation, currents, equilibrium, level, km);
-  }
-
-  const temperature: Float32Array[] = [];
-  const precipitation: Float32Array[] = [];
-  const windEast: Float32Array[] = [];
-  const windNorth: Float32Array[] = [];
-
-  for (let s = 0; s < SEASONS; s++) {
-    // --- temperature -----------------------------------------------------
-    const temp = new Float32Array(n);
-    for (let v = 0; v < n; v++) {
-      const e = elevation[v]!;
-      const sea = -28 + 58 * sunMean[v]!;
-      const swing = 58 * (sunlight[s]![v]! - sunMean[v]!);
-      let t = sea + swing * (e > 0 ? 1.35 : 0.55);
-      if (e > 0) t -= (LAPSE_PER_KM * e) / 1000;
-      else if (seaWarmth) t += seaWarmth[v]!; // warm and cold currents
-      temp[v] = t;
-    }
-    temperature.push(temp);
-
-    // --- winds -----------------------------------------------------------
+  const windsFor = (s: number, warmth: Float32Array | null) => {
     const shift = 0.5 * declSin[s]!; // belts follow the sun
     const east = new Float32Array(n);
     const north = new Float32Array(n);
@@ -234,15 +219,66 @@ export function computeClimate(lattice: Lattice, elevation: ArrayLike<number>, p
       convective[v] = RAIN.background * (1 - RAIN.subsidence * sinking) + RAIN.itcz * itcz + RAIN.front * front;
     }
     if (frame) {
-      // Land heating and cooling pull the wind about (monsoons), and mountains turn it aside.
-      const landSwing = new Float64Array(n);
-      for (let v = 0; v < n; v++) if (elevation[v]! > 0) landSwing[v] = 58 * (sunlight[s]![v]! - sunMean[v]!) * (1.35 - 0.55);
-      bendWinds(lattice, elevation, frame, landSwing, wx, wy, wz, km);
+      // Land heating and cooling, and warm or cold sea, pull the wind about (monsoons), and mountains turn it aside.
+      const heat = new Float64Array(n);
+      for (let v = 0; v < n; v++) {
+        if (elevation[v]! > 0) heat[v] = 58 * (sunlight[s]![v]! - sunMean[v]!) * (1.35 - 0.55);
+        else if (warmth) heat[v] = 0.5 * warmth[v]!;
+      }
+      bendWinds(lattice, elevation, frame, heat, wx, wy, wz, km);
       for (let v = 0; v < n; v++) {
         east[v] = wx[v]! * frame.east[v * 3]! + wy[v]! * frame.east[v * 3 + 1]! + wz[v]! * frame.east[v * 3 + 2]!;
         north[v] = wx[v]! * frame.north[v * 3]! + wy[v]! * frame.north[v * 3 + 1]! + wz[v]! * frame.north[v * 3 + 2]!;
       }
     }
+    return { east, north, wx, wy, wz, convective };
+  };
+
+  // The sea and the air steer each other: the wind drives the currents, the currents warm or cool the sea, and warm or cold
+  // sea pulls the wind. Start from the plain belts, let the air respond to that, and drive the currents again from the result.
+  let ocean: OceanState | null = extras.ocean ?? null;
+  if (frame && !ocean) {
+    const beltEast = new Float32Array(n), beltNorth = new Float32Array(n), equilibrium = new Float64Array(n);
+    for (let v = 0; v < n; v++) {
+      const [u, m] = prevailingWind(positions[v * 3 + 2]!, params);
+      beltEast[v] = u;
+      beltNorth[v] = m;
+      equilibrium[v] = -28 + 58 * sunMean[v]!;
+    }
+    const first = oceanCurrents(lattice, elevation, frame, beltEast, beltNorth, level, km);
+    const firstWarmth = oceanHeatAnomaly(lattice, elevation, first.velocity, equilibrium, level, km);
+    const meanEast = new Float32Array(n), meanNorth = new Float32Array(n);
+    for (let s = 0; s < SEASONS; s++) {
+      const w = windsFor(s, firstWarmth);
+      for (let v = 0; v < n; v++) { meanEast[v] = meanEast[v]! + w.east[v]! / SEASONS; meanNorth[v] = meanNorth[v]! + w.north[v]! / SEASONS; }
+    }
+    const currents = oceanCurrents(lattice, elevation, frame, meanEast, meanNorth, level, km, first);
+    ocean = { currents, seaWarmth: oceanHeatAnomaly(lattice, elevation, currents.velocity, equilibrium, level, km, firstWarmth) };
+  }
+  const seaWarmth = ocean?.seaWarmth ?? null;
+  const currents = ocean?.currents.velocity ?? null;
+
+  const temperature: Float32Array[] = [];
+  const precipitation: Float32Array[] = [];
+  const windEast: Float32Array[] = [];
+  const windNorth: Float32Array[] = [];
+
+  for (let s = 0; s < SEASONS; s++) {
+    // --- temperature -----------------------------------------------------
+    const temp = new Float32Array(n);
+    for (let v = 0; v < n; v++) {
+      const e = elevation[v]!;
+      const sea = -28 + 58 * sunMean[v]!;
+      const swing = 58 * (sunlight[s]![v]! - sunMean[v]!);
+      let t = sea + swing * (isWater(v) ? 0.55 : 1.35); // open water, lakes included, keeps the seasons mild
+      if (e > 0) t -= (LAPSE_PER_KM * e) / 1000;
+      else if (seaWarmth) t += seaWarmth[v]!; // warm and cold currents
+      temp[v] = t;
+    }
+    temperature.push(temp);
+
+    // --- winds -----------------------------------------------------------
+    const { east, north, wx, wy, wz, convective } = windsFor(s, seaWarmth);
     windEast.push(east);
     windNorth.push(north);
 
@@ -285,7 +321,7 @@ export function computeClimate(lattice: Lattice, elevation: ArrayLike<number>, p
       const lift = Math.max(0, e - eIn) / km; // metres of rise per km travelled
       rainSpeed[v] = 0.35 + (0.65 * Math.min(1.12, wlen)) / 1.12;
       let loss = (RAIN.orographic * lift + convective[v]!) * rate;
-      if (elevation[v]! <= 0) loss = convective[v]! * rate; // no orographic lift over open sea
+      if (isWater(v)) loss = convective[v]! * rate; // no orographic lift over open water
       // A slope or front takes at most about a quarter of the moisture per cell (100-200 km): the wettest place on
       // Earth gets ~12,000 mm/yr, not tens of thousands.
       loss = Math.min(MAX_LOSS_PER_CELL, loss);
@@ -317,7 +353,7 @@ export function computeClimate(lattice: Lattice, elevation: ArrayLike<number>, p
     for (let v = 0; v < n; v++) {
       const warm = Math.max(0.03, (temp[v]! + 10) / 40);
       qsat[v] = 120 * warm * warm;
-      if (elevation[v]! <= 0) q[v] = qsat[v]!;
+      if (isWater(v)) q[v] = qsat[v]!;
     }
     for (let pass = 0; pass < sweeps; pass++) {
       for (let v = 0; v < n; v++) {
@@ -333,7 +369,7 @@ export function computeClimate(lattice: Lattice, elevation: ArrayLike<number>, p
         }
         rain[v] = qIn * rainRate[v]! * 157 * rainSpeed[v]!;
         let out = qIn * keepShare[v]!;
-        if (elevation[v]! <= 0) out += (qsat[v]! - out) * evapRelax;
+        if (isWater(v)) out += (qsat[v]! - out) * evapRelax;
         else out *= landKeep;
         q[v] = out;
       }
@@ -369,5 +405,5 @@ export function computeClimate(lattice: Lattice, elevation: ArrayLike<number>, p
       currentNorth[v] = currents[v * 3]! * frame.north[v * 3]! + currents[v * 3 + 1]! * frame.north[v * 3 + 1]! + currents[v * 3 + 2]! * frame.north[v * 3 + 2]!;
     }
   }
-  return { temperature, precipitation, windEast, windNorth, meanTemperature, meanPrecipitation, meanWindEast, meanWindNorth, currentEast, currentNorth };
+  return { temperature, precipitation, windEast, windNorth, meanTemperature, meanPrecipitation, meanWindEast, meanWindNorth, currentEast, currentNorth, ocean };
 }

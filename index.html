@@ -98,7 +98,11 @@
       #side hr { width: 100%; margin: 2px 0; border: 0; border-top: 1px solid var(--border); }
       #sideGrip { position: fixed; top: 0; right: calc(var(--side-width, 240px) - 4px); width: 8px; z-index: 5; cursor: ew-resize; touch-action: none; }
       #sideGrip:hover, #sideGrip:active { background: rgba(90, 169, 255, 0.4); }
-      #legend { display: grid; gap: 3px; font-size: var(--font-small); color: var(--muted); }
+      /* The legend floats over the 3D view and can be dragged by its title bar. */
+      #legend { z-index: 5; min-width: 150px; max-height: calc(100vh - 140px); overflow-y: auto; border-radius: var(--radius); font-size: var(--font-small); color: var(--muted); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35); }
+      #legendHead { position: sticky; top: 0; padding: 4px 10px; background: var(--pane-head); border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: var(--text); cursor: grab; user-select: none; touch-action: none; }
+      #legend.dragging #legendHead { cursor: grabbing; }
+      #legendBody { display: grid; gap: 3px; padding: 8px 10px; }
       #legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
       #info, #pointerInfo { color: var(--muted); font-size: var(--font-small); line-height: 1.45; }
 
@@ -130,6 +134,11 @@
   </head>
   <body>
     <canvas id="globe"></canvas>
+
+    <div id="legend" class="panel" hidden>
+      <div id="legendHead" title="Drag to move">Legend</div>
+      <div id="legendBody"></div>
+    </div>
 
     <div id="tools" class="panel" role="toolbar" aria-label="Tools">
       <h2>View</h2>
@@ -247,19 +256,16 @@
             <option value="rainfall">Rainfall</option>
             <option value="biomes">Biomes</option>
             <option value="geology">Geology</option>
-            <option value="winds">Wind Currents</option>
-            <option value="currents">Ocean Currents</option>
           </select>
         </label>
-        <div id="legend"></div>
         <label>Height Exaggeration <span id="exagReadout">40×</span>
           <input id="exaggeration" type="range" min="1" max="100" step="1" value="40" />
         </label>
-        <label class="check"><input id="edges" type="checkbox" /> Show Cell Edges</label>
-        <label class="check"><input id="plateOutlines" type="checkbox" /> Plate Outlines</label>
-        <label class="check"><input id="winds" type="checkbox" /> Prevailing Winds</label>
+        <label class="check"><input id="winds" type="checkbox" /> Wind Currents</label>
+        <label class="check"><input id="currents" type="checkbox" /> Ocean Currents</label>
         <label class="check"><input id="water" type="checkbox" checked /> Rivers and Lakes</label>
         <label>Rivers Shown <span id="riverReadout"></span> <input id="riverDensity" type="range" min="0.5" max="20" step="0.5" value="4" /></label>
+        <label class="check"><input id="plateOutlines" type="checkbox" /> Plate Outlines</label>
         <label class="check"><input id="guideAxis" type="checkbox" /> Rotation Axis</label>
         <label class="check"><input id="guideEquator" type="checkbox" /> Equator</label>
         <label class="check"><input id="guideTropics" type="checkbox" /> Tropics</label>

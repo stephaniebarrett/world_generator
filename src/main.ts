@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { DETAIL_PRESETS, buildLattice, type DetailPreset, type Lattice } from './sim/lattice';
 import { applyBrush, newRecipe, type BrushEdit, type GenerateEdit, type PlateEdit, type Recipe, type WorldState } from './sim/world';
 import { buildCellBorders, buildCellMesh, type CellBorders, type CellMesh } from './view/cells';
-import { buildCellEdges, buildCellGeometry, surfaceRadius, updateCellColors, updateCellHeights, updateEdgeHeights } from './view/cellGeometry';
+import { buildCellGeometry, surfaceRadius, updateCellColors, updateCellHeights } from './view/cellGeometry';
 import { colorsFromRock, colorsFromBiomes, colorsFromPlates, colorsFromRainfall, colorsFromTemperature, colorsFromThickness } from './view/colors';
 import { prepareWorld, type PreparedWorld } from './sim/setup';
 import { ROCKS } from './sim/crust';
@@ -16,9 +16,8 @@ import type { ClimateParams } from './sim/climate';
 import { PROJECTIONS, projectionByKey } from './export/projections';
 import { renderProjection } from './export/render';
 import { LatticeIndex } from './sim/latticeIndex';
-import { windArrowLines } from './view/wind';
 import type { CirculationLevel } from './sim/circulation';
-import { FLOW_STOPS, FLOW_TOP_SPEED, flowArrowLines } from './view/flowArrows';
+import { flowArrowLines } from './view/flowArrows';
 import { riverPaths } from './view/riverPaths';
 import { elevationFromThickness } from './sim/world';
 import { setupSidePanel } from './view/sidePanel';
@@ -34,7 +33,6 @@ const sizeReadout = $<HTMLSpanElement>('sizeReadout');
 const regenButton = $<HTMLButtonElement>('regen');
 const undoButton = $<HTMLButtonElement>('undo');
 const radiusInput = $<HTMLInputElement>('radius');
-const edgesToggle = $<HTMLInputElement>('edges');
 const layerSelect = $<HTMLSelectElement>('layer');
 const waterToggle = $<HTMLInputElement>('water');
 const windToggle = $<HTMLInputElement>('winds');
@@ -126,7 +124,6 @@ let frameIndex = 0;
 let follow = true;
 let worker: Worker | null = null;
 let globe: THREE.Mesh | null = null;
-let edges: THREE.LineSegments | null = null;
 
 function refreshInfo(): void {
   const plateText = prepared ? `, ${new Set(prepared.setup.plateOf).size} plates` : '';
@@ -197,20 +194,15 @@ function rebuildView(): void {
       viewMap[c] = latticeIndex!.nearest(viewLattice.positions[c * 3]!, viewLattice.positions[c * 3 + 1]!, viewLattice.positions[c * 3 + 2]!);
     }
   }
-  for (const old of [globe, edges]) {
-    if (old) {
-      old.geometry.dispose();
-      scene.remove(old);
-    }
+  if (globe) {
+    globe.geometry.dispose();
+    scene.remove(globe);
   }
   globe = new THREE.Mesh(
     buildCellGeometry(viewLattice, cells, toViewColors(colorsFromThickness(viewThickness(), seaLevel()))),
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9 }),
   );
   scene.add(globe);
-  edges = new THREE.LineSegments(buildCellEdges(cells), new THREE.LineBasicMaterial({ color: 0x0b0f17, transparent: true, opacity: 0.5 }));
-  edges.visible = edgesToggle.checked;
-  scene.add(edges);
   applyHeights(true);
 }
 
@@ -270,7 +262,6 @@ function applyHeights(withNormals: boolean): void {
   const elevation = new Float64Array(count);
   for (let c = 0; c < count; c++) elevation[c] = elevationFromThickness(thickness[viewMap ? viewMap[c]! : c]!) - seaLevel();
   cornerRadius = updateCellHeights(globe.geometry, viewLattice, cells, elevation, Number(exaggerationInput.value), withNormals);
-  if (edges) updateEdgeHeights(edges.geometry, cells, cornerRadius);
 }
 
 /** Radius of the surface above a lattice vertex, for laying lines on the terrain. */
@@ -425,58 +416,52 @@ function updateRivers(): void {
   scene.add(riverLines);
 }
 
-let windLines: THREE.LineSegments | null = null;
-
-/** Prevailing-wind arrows over the globe, following the planet's tilt and spin. */
-function updateWinds(): void {
-  if (windLines) {
-    windLines.geometry.dispose();
-    scene.remove(windLines);
-    windLines = null;
-  }
-  if (!windToggle.checked || !latticeIndex) return;
-  const index = latticeIndex;
-  const pos = windArrowLines(climateParams(), (x, y, z) => Math.max(1, radiusAtVertex(index.nearest(x, y, z))));
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  windLines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: 0xfff1b0 }));
-  scene.add(windLines);
-}
-windToggle.addEventListener('change', updateWinds);
-
-let flowLines: THREE.LineSegments | null = null;
+const flowToggles = { winds: windToggle, currents: $<HTMLInputElement>('currents') } as const;
+const flowLines: Record<keyof typeof flowToggles, THREE.LineSegments | null> = { winds: null, currents: null };
 /** Degrees between flow arrows by circulation detail: the finer the flow, the denser and smaller the arrows. */
 const ARROW_STEP_DEG = [6, 5, 3.5, 3, 2.6, 2.2] as const;
 
-/** Arrows for the Wind Currents and Ocean Currents layers, coloured and sized by speed. */
-function updateFlowArrows(): void {
-  if (flowLines) {
-    flowLines.geometry.dispose();
-    scene.remove(flowLines);
-    flowLines = null;
+/** Arrows for the wind or the ocean currents, over whatever layer is on show, coloured and sized by speed. */
+function drawFlow(kind: keyof typeof flowToggles): void {
+  const old = flowLines[kind];
+  if (old) {
+    old.geometry.dispose();
+    scene.remove(old);
+    flowLines[kind] = null;
   }
-  const layer = layerSelect.value;
   const climate = currentWater();
-  if ((layer !== 'winds' && layer !== 'currents') || !climate || !latticeIndex) return;
+  if (!flowToggles[kind].checked || !climate || !latticeIndex) return;
   const index = latticeIndex;
   const thickness = currentThickness();
-  const east = layer === 'winds' ? climate.windEast : climate.currentEast;
-  const north = layer === 'winds' ? climate.windNorth : climate.currentNorth;
+  const east = kind === 'winds' ? climate.windEast : climate.currentEast;
+  const north = kind === 'winds' ? climate.windNorth : climate.currentNorth;
   const { positions, colors } = flowArrowLines((x, y, z) => {
     const v = index.nearest(x, y, z);
     // Currents run in the sea only; the wind is shown everywhere.
-    if (layer === 'currents' && elevationFromThickness(thickness[v]!) - seaLevel() > 0) return null;
+    if (kind === 'currents' && elevationFromThickness(thickness[v]!) - seaLevel() > 0) return null;
     return [east[v]!, north[v]!];
   },
-  // Currents ride on the sea surface (a hair above, so they do not flicker against it); the wind follows the terrain.
-  layer === 'currents' ? () => 1 : (x, y, z) => Math.max(1, radiusAtVertex(index.nearest(x, y, z))),
+  // Both follow the surface as drawn. The sea is drawn at its floor, so the currents hug that, a hair above so they do not flicker
+  // against it; the wind is held at or above sea level, and a little higher so it reads as moving over the land.
+  kind === 'currents' ? (x, y, z) => radiusAtVertex(index.nearest(x, y, z)) : (x, y, z) => Math.max(1, radiusAtVertex(index.nearest(x, y, z))),
   ARROW_STEP_DEG[circulationLevel()],
-  layer === 'currents' ? 0.0015 : undefined);
+  kind === 'currents' ? 0.0008 : undefined);
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  flowLines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ vertexColors: true }));
-  scene.add(flowLines);
+  flowLines[kind] = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ vertexColors: true }));
+  scene.add(flowLines[kind]!);
+}
+
+function updateFlowArrows(): void {
+  drawFlow('winds');
+  drawFlow('currents');
+}
+for (const toggle of Object.values(flowToggles)) {
+  toggle.addEventListener('change', () => {
+    ensureClimateForLayer();
+    updateFlowArrows();
+  });
 }
 
 waterToggle.addEventListener('change', () => {
@@ -509,7 +494,7 @@ let climateTimer: number | undefined;
 function ensureClimateForLayer(): void {
   if (frames[frameIndex] || staticClimate) return;
   const layer = layerSelect.value;
-  const needed = layer === 'temperature' || layer === 'rainfall' || layer === 'biomes' || layer === 'winds' || layer === 'currents' || waterToggle.checked;
+  const needed = layer === 'temperature' || layer === 'rainfall' || layer === 'biomes' || waterToggle.checked || windToggle.checked || flowToggles.currents.checked;
   if (!needed) return;
   window.clearTimeout(climateTimer);
   climateTimer = window.setTimeout(() => {
@@ -606,12 +591,10 @@ recomputeButton.addEventListener('click', recomputeClimate);
 
 tiltInput.addEventListener('input', () => {
   tiltReadout.textContent = `${tiltInput.value}°`;
-  updateWinds();
   rebuildGuides();
   scheduleSave();
 });
 spinSelect.addEventListener('change', () => {
-  updateWinds();
   scheduleSave();
 });
 seaInput.addEventListener('input', () => {
@@ -762,17 +745,72 @@ scrub.addEventListener('input', () => {
 });
 
 const legend = document.getElementById('legend') as HTMLDivElement;
+const legendBody = document.getElementById('legendBody') as HTMLDivElement;
+
+/** Where the legend sits (its top-left corner, in pixels): dragged by its title bar, and kept inside the 3D view. */
+let legendSpot: { left: number; top: number } | null = null;
+try {
+  const saved = JSON.parse(localStorage.getItem('world-generator.legend') ?? 'null') as { left?: unknown; top?: unknown } | null;
+  if (saved && typeof saved.left === 'number' && typeof saved.top === 'number') legendSpot = { left: saved.left, top: saved.top };
+} catch {
+  // A convenience only.
+}
+
+const clamp = (x: number, lo: number, hi: number): number => (x < lo ? lo : x > hi ? hi : x);
+
+/** Keep the legend inside the space between the docked panels; before it has been moved it sits at the bottom left. */
+function placeLegend(): void {
+  if (legend.hidden) return;
+  const tools = document.getElementById('tools')!.offsetWidth;
+  const side = document.getElementById('side')!.offsetWidth;
+  const timeline = document.getElementById('timeline')!.offsetHeight;
+  const margin = 12;
+  const minLeft = tools + margin, maxLeft = Math.max(minLeft, window.innerWidth - side - legend.offsetWidth - margin);
+  const minTop = margin, maxTop = Math.max(minTop, window.innerHeight - timeline - legend.offsetHeight - margin);
+  const left = clamp(legendSpot?.left ?? minLeft, minLeft, maxLeft);
+  const top = clamp(legendSpot?.top ?? maxTop, minTop, maxTop);
+  legend.style.left = `${left}px`;
+  legend.style.top = `${top}px`;
+}
+
+legend.querySelector<HTMLElement>('#legendHead')!.addEventListener('pointerdown', (e) => {
+  const head = e.currentTarget as HTMLElement;
+  const startX = e.clientX - legend.offsetLeft, startY = e.clientY - legend.offsetTop;
+  head.setPointerCapture(e.pointerId);
+  legend.classList.add('dragging');
+  const move = (m: PointerEvent) => {
+    legendSpot = { left: m.clientX - startX, top: m.clientY - startY };
+    placeLegend();
+  };
+  const stop = () => {
+    head.removeEventListener('pointermove', move);
+    head.removeEventListener('pointerup', stop);
+    head.removeEventListener('pointercancel', stop);
+    legend.classList.remove('dragging');
+    legendSpot = { left: legend.offsetLeft, top: legend.offsetTop };
+    try {
+      localStorage.setItem('world-generator.legend', JSON.stringify(legendSpot));
+    } catch {
+      // A convenience only.
+    }
+  };
+  head.addEventListener('pointermove', move);
+  head.addEventListener('pointerup', stop);
+  head.addEventListener('pointercancel', stop);
+});
+window.addEventListener('resize', placeLegend);
+for (const id of ['tools', 'side', 'timeline']) new ResizeObserver(placeLegend).observe(document.getElementById(id)!);
 
 /** A key to the colours, for the layers whose colours are categories. */
 function updateLegend(): void {
   const layer = layerSelect.value;
-  const items =
+  type Entry = { name: string; color: readonly number[] };
+  const layerItems: Entry[] =
     layer === 'geology' ? ROCKS.map((r) => ({ name: r.name, color: r.color }))
     : layer === 'biomes' ? BIOMES.map((b) => ({ name: b.name, color: b.color }))
-    : layer === 'winds' || layer === 'currents' ? FLOW_STOPS.map((s) => ({ name: `${(s[0] * FLOW_TOP_SPEED).toFixed(1)}${s[0] === 1 ? ' or more' : ''}`, color: [s[1], s[2], s[3]] as const }))
     : [];
-  legend.replaceChildren(
-    ...items.map((item) => {
+  legendBody.replaceChildren(
+    ...layerItems.map((item) => {
       const row = document.createElement('div');
       const swatch = document.createElement('span');
       swatch.className = 'swatch';
@@ -781,6 +819,8 @@ function updateLegend(): void {
       return row;
     }),
   );
+  legend.hidden = layerItems.length === 0;
+  placeLegend();
 }
 
 /** Repaint the cells; `withRivers` is false while painting, when rebuilding the river lines on every dab would be wasteful. */
@@ -800,7 +840,6 @@ function recolor(withRivers = true): void {
   applyHeights(withRivers); // while painting (withRivers false) skip the slow normals; they are refreshed when the stroke ends
   if (withRivers) {
     updateRivers();
-    updateWinds();
     updateFlowArrows();
     updatePlateOutlines();
   }
@@ -1177,7 +1216,7 @@ exaggerationInput.addEventListener('input', () => {
   exagReadout.textContent = `${exaggerationInput.value}×`;
   applyHeights(true);
   updateRivers();
-  updateWinds();
+  updateFlowArrows();
   updatePlateOutlines();
 });
 
@@ -1239,9 +1278,6 @@ renderDetailSelect.addEventListener('change', () => {
   rebuildView();
   recolor();
   refreshInfo();
-});
-edgesToggle.addEventListener('change', () => {
-  if (edges) edges.visible = edgesToggle.checked;
 });
 
 function resize(): void {

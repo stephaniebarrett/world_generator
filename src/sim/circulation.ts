@@ -88,8 +88,13 @@ export function smoothField(lattice: Lattice, f: ArrayLike<number>, passes: numb
  * spin growing with latitude and a little friction. Land is solid, so the water goes round every coast rather than into it,
  * which squeezes the return flow into fast narrow currents on the western side of each basin. Solved as a streamfunction
  * (flow runs along its contours, zero on land), so nothing can pour into a bay or run through a shore.
- * Returns xyz per point, zero on land.
+ * Returns the velocity (xyz per point, zero on land) and the streamfunction, which can start a later, refined solve.
  */
+export interface Currents {
+  readonly velocity: Float64Array;
+  readonly psi: Float64Array;
+}
+
 export function oceanCurrents(
   lattice: Lattice,
   elevation: ArrayLike<number>,
@@ -98,7 +103,9 @@ export function oceanCurrents(
   windNorth: ArrayLike<number>,
   level: CirculationLevel,
   km: number,
-): Float64Array {
+  /** A solve this one refines (the winds changed a little): it starts from there and needs fewer sweeps. */
+  previous?: Currents,
+): Currents {
   const { positions: p, offsets, neighbors } = lattice;
   const n = lattice.vertexCount;
   const h = km / EARTH_RADIUS_KM; // spacing on the unit sphere
@@ -121,8 +128,8 @@ export function oceanCurrents(
 
   // friction * laplacian(psi) + beta * d(psi)/d(east) = drive, with psi zero on land, by successive over-relaxation.
   const friction = 1.5 * h; // the western boundary current is about a cell and a half wide
-  const psi = new Float64Array(n);
-  const sweeps = Math.min(2000, Math.max(40, Math.round((EFFORT[level] * 4) / h)));
+  const psi = previous ? Float64Array.from(previous.psi) : new Float64Array(n);
+  const sweeps = Math.min(2000, Math.max(40, Math.round(((previous ? 0.5 : 1) * EFFORT[level] * 4) / h)));
   for (let pass = 0; pass < sweeps; pass++) {
     for (let v = 0; v < n; v++) {
       if (!sea(v)) continue;
@@ -168,7 +175,7 @@ export function oceanCurrents(
     if (speed > MAX_CURRENT) { const k = MAX_CURRENT / speed; sx *= k; sy *= k; sz *= k; }
     u[v * 3] = sx; u[v * 3 + 1] = sy; u[v * 3 + 2] = sz;
   }
-  return u;
+  return { velocity: u, psi };
 }
 
 /**
@@ -182,12 +189,14 @@ export function oceanHeatAnomaly(
   equilibrium: ArrayLike<number>,
   level: CirculationLevel,
   km: number,
+  /** The anomaly from an earlier solve to start from (the currents changed a little), which then needs fewer sweeps. */
+  previous?: Float32Array,
 ): Float32Array {
   const { positions: p, offsets, neighbors } = lattice;
   const n = lattice.vertexCount;
   const relax = Math.max(km * 4e-5, 0.01); // so warm water travels a few thousand km before it has cooled
-  const sweeps = Math.min(600, Math.max(12, Math.round((EFFORT[level] * 2) / relax)));
-  let t = Float64Array.from(equilibrium), next = new Float64Array(n);
+  const sweeps = Math.min(600, Math.max(12, Math.round(((previous ? 0.5 : 1) * EFFORT[level] * 2) / relax)));
+  let t = Float64Array.from(equilibrium, (e, v) => e + (previous ? previous[v]! : 0)), next = new Float64Array(n);
   for (let pass = 0; pass < sweeps; pass++) {
     for (let v = 0; v < n; v++) {
       if (elevation[v]! > 0) { next[v] = t[v]!; continue; }
@@ -212,13 +221,14 @@ export function oceanHeatAnomaly(
 
 /**
  * Bend the wind (xyz per point, edited in place) for the land: a monsoon pull toward hot land and away from cold land, and
- * a turn aside where the ground rises ahead. `landSwing` is how much hotter the land is than the sea at each point this season.
+ * a turn aside where the ground rises ahead. `heat` is how much hotter each point is than its surroundings would make it this season:
+ * land that is warmer than the sea, or sea made warm or cold by currents.
  */
 export function bendWinds(
   lattice: Lattice,
   elevation: ArrayLike<number>,
   frame: Frame,
-  landSwing: ArrayLike<number>,
+  heat: ArrayLike<number>,
   wx: Float64Array,
   wy: Float64Array,
   wz: Float64Array,
@@ -226,9 +236,9 @@ export function bendWinds(
 ): void {
   const { positions: p } = lattice;
   const n = lattice.vertexCount;
-  const heat = gradient(lattice, smoothField(lattice, landSwing, clamp(Math.round((600 / km) * (600 / km)), 2, 12)));
+  const pull = gradient(lattice, smoothField(lattice, heat, clamp(Math.round((600 / km) * (600 / km)), 2, 12)));
   for (let v = 0; v < n; v++) {
-    const gx = heat[v * 3]!, gy = heat[v * 3 + 1]!, gz = heat[v * 3 + 2]!;
+    const gx = pull[v * 3]!, gy = pull[v * 3 + 1]!, gz = pull[v * 3 + 2]!;
     const mag = Math.sqrt(gx * gx + gy * gy + gz * gz);
     if (mag < 1e-12) continue;
     // Air flows toward the heat, turned by the spin of the planet (right in the north, left in the south).
