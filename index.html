@@ -7,76 +7,105 @@
     <link rel="icon" href="data:," />
     <style>
       :root {
+        /* Colour: three surface levels, one accent, text with enough contrast on all of them */
         --bg: #0b0f17;
-        --panel: rgba(20, 27, 39, 0.82);
+        --panel: rgba(20, 27, 39, 0.9);
+        --raised: rgba(34, 45, 62, 0.9);
+        --field: #0e141f;
         --border: #2a3547;
-        --text: #cfd8e3;
-        --muted: #7f8da3;
+        --border-strong: #3a475c;
+        --text: #d5dde8;
+        --muted: #8d9bb0;
         --accent: #5aa9ff;
+        --accent-text: #04101f;
+        --hover: rgba(255, 255, 255, 0.07);
+        /* Space, shape, and type on a 4px grid */
+        --gap: 8px;
+        --radius: 6px;
+        --control-height: 28px;
+        --font-small: 12px;
       }
       * { box-sizing: border-box; }
-      html, body { margin: 0; width: 100%; height: 100%; background: var(--bg); color: var(--text); font: 13px system-ui, sans-serif; overflow: hidden; }
+      html, body { margin: 0; width: 100%; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif; overflow: hidden; -webkit-font-smoothing: antialiased; }
       #globe { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; display: block; touch-action: none; }
 
-      .panel { position: fixed; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
-      .panel h2 { margin: 0 0 6px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
-      label { display: grid; gap: 4px; }
-      input, select, button { font: inherit; padding: 5px 8px; background: #0b0f17; color: inherit; border: 1px solid var(--border); border-radius: 6px; }
-      button { cursor: pointer; }
-      button:hover:not(:disabled) { border-color: var(--accent); }
+      .panel { position: fixed; background: var(--panel); border: 1px solid var(--border); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+      h2 { margin: 0; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+
+      /* Controls */
+      label { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--gap); row-gap: 4px; align-items: baseline; font-size: var(--font-small); color: var(--text); }
+      label > * { grid-column: 1 / -1; }
+      label > [id$="Readout"] { grid-column: 2; grid-row: 1; justify-self: end; color: var(--muted); font-variant-numeric: tabular-nums; }
+      input, select, button { font: inherit; color: inherit; min-height: var(--control-height); padding: 3px 8px; background: var(--field); border: 1px solid var(--border); border-radius: var(--radius); }
+      input:hover:not(:disabled), select:hover:not(:disabled) { border-color: var(--border-strong); }
+      button { cursor: pointer; background: var(--raised); border-color: var(--border-strong); text-align: center; transition: background 0.1s, border-color 0.1s; }
+      button:hover:not(:disabled) { background: #2d3b50; border-color: var(--accent); }
+      button:active:not(:disabled) { background: #26334a; }
       button:disabled { opacity: 0.45; cursor: default; }
-      input[type="range"] { padding: 0; width: 100%; }
-      input[type="checkbox"] { padding: 0; }
+      button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+      button.primary:hover:not(:disabled) { background: #7bbcff; border-color: #7bbcff; }
+      :is(input, select, button, h2[role="button"]):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+      input[type="range"] { padding: 0; min-height: 20px; width: 100%; background: none; border: 0; accent-color: var(--accent); }
+      input[type="checkbox"] { min-height: 0; width: 15px; height: 15px; margin: 0; padding: 0; accent-color: var(--accent); }
+      input[type="number"] { font-variant-numeric: tabular-nums; }
       .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
       .pair input { width: 100%; min-width: 0; }
-      .row { display: flex; gap: 8px; align-items: center; }
-      .check { display: flex; gap: 6px; align-items: center; }
+      .check { display: flex; gap: 8px; align-items: center; min-height: 22px; cursor: pointer; }
+      .hintline { color: var(--muted); font-size: 11px; line-height: 1.35; }
 
-      /* Left toolbar */
-      #tools { top: 12px; left: 12px; padding: 8px; display: grid; gap: 4px; width: 118px; }
-      #tools button { text-align: left; }
-      #hint { color: var(--muted); font-size: 11px; line-height: 1.35; margin-top: 4px; }
-      #tools button.active { background: var(--accent); color: #04101f; border-color: var(--accent); font-weight: 600; }
+      /* Left toolbar: docked to the left edge, grouped like a tool box */
+      #tools { top: 0; left: 0; bottom: var(--timeline-height, 66px); width: 148px; padding: 8px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; border-width: 0 1px 0 0; border-radius: 0; }
+      #tools h2 { padding: 10px 4px 4px; }
+      #tools h2:first-child { padding-top: 2px; }
+      #tools button { text-align: left; background: transparent; border-color: transparent; min-height: 30px; }
+      #tools button:hover:not(:disabled) { background: var(--hover); border-color: transparent; }
+      #tools button.active { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+      #tools #undo { margin-top: 2px; border-color: var(--border); }
+      #hint { color: var(--muted); font-size: var(--font-small); line-height: 1.4; margin-top: 10px; padding: 8px; border-top: 1px solid var(--border); }
 
       /* Which moment of the simulation is drawn */
-      #epoch { top: 12px; left: 50%; transform: translateX(-50%); padding: 6px 14px; font-size: 14px; font-variant-numeric: tabular-nums; pointer-events: none; }
-      #epoch small { color: var(--muted); font-size: 11px; margin-left: 6px; }
+      #epoch { top: 12px; left: 50%; transform: translateX(-50%); padding: 6px 14px; border-radius: 999px; font-size: 14px; font-variant-numeric: tabular-nums; pointer-events: none; }
+      #epoch small { color: var(--muted); font-size: var(--font-small); margin-left: 6px; }
 
-      /* Right panel */
-      #side { top: 0; right: 0; bottom: var(--timeline-height, 66px); width: var(--side-width, 220px); overflow-y: auto; padding: 8px; align-content: start; grid-auto-rows: max-content; border-width: 0 0 0 1px; border-radius: 0; display: grid; gap: 8px; background: var(--panel); }
-      #side section { display: grid; gap: 8px; padding: 10px; background: rgba(34, 45, 62, 0.86); border-radius: 8px; }
-      #side hr { width: 100%; margin: 2px 0; border: 0; border-top: 1px solid var(--border); }
-      #side section, #side .sectionBody, #side label { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+      /* Right panel: docked to the right edge; sections are cards that take only the room they need */
+      #side { top: 0; right: 0; bottom: var(--timeline-height, 66px); width: var(--side-width, 240px); overflow-y: auto; padding: 8px; align-content: start; grid-auto-rows: max-content; border-width: 0 0 0 1px; border-radius: 0; display: grid; gap: 8px; }
+      #side section { display: grid; background: var(--raised); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+      #side section, #side .sectionBody, #side label { min-width: 0; }
+      #side section, #side .sectionBody { grid-template-columns: minmax(0, 1fr); }
       #side select, #side input { min-width: 0; max-width: 100%; }
-      #side .sectionBody { display: grid; gap: 8px; }
+      #side .sectionBody { display: grid; gap: 10px; padding: 10px 12px 12px; border-top: 1px solid var(--border); }
       #side section.folded .sectionBody { display: none; }
-      #side section.folded h2 { margin-bottom: 0; }
+      #side .sectionBody > button { justify-self: center; width: 100%; max-width: 180px; }
+      #side h2 { padding: 9px 12px; }
       #side h2[role="button"] { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px; }
       #side h2[role="button"]::before { content: '\25BE'; font-size: 10px; transition: transform 0.12s; }
       #side section.folded h2[role="button"]::before { transform: rotate(-90deg); }
-      #side h2[role="button"]:hover { color: var(--text, #e6edf7); }
-      #sideGrip { position: fixed; top: 0; right: calc(var(--side-width, 220px) - 4px); width: 8px; z-index: 5; cursor: ew-resize; touch-action: none; border-radius: 4px; }
-      #sideGrip:hover, #sideGrip:active { background: rgba(77, 163, 255, 0.35); }
-      .hintline { color: var(--muted); font-size: 11px; }
-      #sizeReadout { color: var(--muted); font-size: 11px; }
-      #legend { display: grid; gap: 3px; font-size: 11px; color: var(--muted); }
+      #side h2[role="button"]:hover { color: var(--text); background: var(--hover); }
+      #side hr { width: 100%; margin: 2px 0; border: 0; border-top: 1px solid var(--border); }
+      #sideGrip { position: fixed; top: 0; right: calc(var(--side-width, 240px) - 4px); width: 8px; z-index: 5; cursor: ew-resize; touch-action: none; }
+      #sideGrip:hover, #sideGrip:active { background: rgba(90, 169, 255, 0.4); }
+      #legend { display: grid; gap: 3px; font-size: var(--font-small); color: var(--muted); }
       #legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
-      #info, #pointerInfo { color: var(--muted); line-height: 1.4; }
+      #info, #pointerInfo { color: var(--muted); font-size: var(--font-small); line-height: 1.45; }
 
-      /* Bottom timeline */
-      #timeline { left: 0; right: 0; bottom: 0; padding: 8px 12px; border-width: 1px 0 0 0; border-radius: 0; display: flex; gap: 12px; align-items: center; }
+      /* Bottom timeline: docked to the bottom edge */
+      #timeline { left: 0; right: 0; bottom: 0; padding: 8px 16px; border-width: 1px 0 0 0; display: flex; gap: 16px; align-items: center; }
       #simulate { width: 84px; flex: none; }
       #scrubWrap { flex: 1; position: relative; padding-bottom: 10px; }
       #scrubWrap input[type="range"] { width: 100%; margin: 0; }
       #runBar { position: absolute; left: 8px; right: 8px; bottom: 0; height: 8px; border-radius: 2px; background: rgba(150, 170, 200, 0.12); pointer-events: none; overflow: hidden; visibility: hidden; }
-      #runBar i { display: block; height: 100%; width: 0; background: rgba(77, 163, 255, 0.4); }
+      #runBar i { display: block; height: 100%; width: 0; background: rgba(90, 169, 255, 0.4); }
       #ticks { position: absolute; left: 0; right: 0; bottom: 0; height: 8px; pointer-events: none; }
       #ticks i { position: absolute; bottom: 0; width: 2px; height: 5px; margin-left: -1px; background: var(--muted); opacity: 0.35; border-radius: 1px; }
-      #ticks i.done { height: 8px; background: var(--accent, #4da3ff); opacity: 1; }
-      #timeReadout { height: 16px; line-height: 16px; margin-bottom: 2px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-variant-numeric: tabular-nums; }
+      #ticks i.done { height: 8px; background: var(--accent); opacity: 1; }
+      #timeReadout { height: 16px; line-height: 16px; margin-bottom: 2px; font-size: var(--font-small); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-variant-numeric: tabular-nums; }
 
       @media (max-width: 760px) {
-        :root { --side-width: 180px; }
+        :root { --side-width: 200px; }
+        #tools { width: 124px; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * { transition: none !important; }
       }
     </style>
   </head>
@@ -84,18 +113,21 @@
     <canvas id="globe"></canvas>
     <div id="epoch" class="panel" aria-live="polite"></div>
 
-    <div id="tools" class="panel">
-      <h2>Tools</h2>
+    <div id="tools" class="panel" role="toolbar" aria-label="Tools">
+      <h2>View</h2>
       <button data-tool="orbit" class="active">Orbit</button>
+      <h2>Terrain</h2>
       <button data-tool="land">Paint land</button>
       <button data-tool="ocean">Paint ocean</button>
       <button data-tool="raise">Raise</button>
       <button data-tool="lower">Lower</button>
+      <h2>Plates</h2>
       <button data-tool="addPlate">Add plate</button>
       <button data-tool="removePlate">Remove plate</button>
       <button data-tool="splitPlate">Split plate</button>
       <button data-tool="dragPlate">Drag plate</button>
       <button data-tool="paintPlate">Paint plate</button>
+      <h2>Edit</h2>
       <button id="undo">Undo</button>
       <div id="hint">Drag to turn the globe, scroll to zoom.</div>
     </div>
@@ -144,7 +176,7 @@
         <label>Land cover <span id="coverReadout">30%</span>
           <input id="landCover" type="range" min="5" max="60" step="1" value="30" />
         </label>
-        <button id="generate">Generate land</button>
+        <button id="generate" class="primary">Generate land</button>
         <hr />
         <label>Axial tilt <span id="tiltReadout">23°</span>
           <input id="tilt" type="range" min="0" max="45" step="1" value="23" />
@@ -229,7 +261,7 @@
     </div>
 
     <div id="timeline" class="panel">
-      <button id="simulate">Simulate</button>
+      <button id="simulate" class="primary">Simulate</button>
       <div id="scrubWrap">
         <div id="timeReadout">t = 0 My</div>
         <input id="scrub" type="range" min="0" max="200" step="10" value="0" disabled />
