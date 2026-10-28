@@ -103,8 +103,8 @@ export function oceanCurrents(
   windNorth: ArrayLike<number>,
   level: CirculationLevel,
   km: number,
-  /** A solve this one refines (the winds changed a little): it starts from there and needs fewer sweeps. */
-  previous?: Currents,
+  /** The streamfunction of a solve this one refines (the winds changed a little): it starts from there and needs fewer sweeps. */
+  previousPsi?: Float64Array,
 ): Currents {
   const { positions: p, offsets, neighbors } = lattice;
   const n = lattice.vertexCount;
@@ -128,8 +128,10 @@ export function oceanCurrents(
 
   // friction * laplacian(psi) + beta * d(psi)/d(east) = drive, with psi zero on land, by successive over-relaxation.
   const friction = 1.5 * h; // the western boundary current is about a cell and a half wide
-  const psi = previous ? Float64Array.from(previous.psi) : new Float64Array(n);
-  const sweeps = Math.min(2000, Math.max(40, Math.round(((previous ? 0.5 : 1) * EFFORT[level] * 4) / h)));
+  const psi = previousPsi ? Float64Array.from(previousPsi) : new Float64Array(n);
+  for (let v = 0; v < n; v++) if (!sea(v)) psi[v] = 0; // land that was sea at the last solve holds no water now
+  // Starting from the last keyframe's answer, which the land has only slightly changed, a quarter of the sweeps are enough.
+  const sweeps = Math.min(2000, Math.max(previousPsi ? 12 : 40, Math.round(((previousPsi ? 0.25 : 1) * EFFORT[level] * 4) / h)));
   for (let pass = 0; pass < sweeps; pass++) {
     for (let v = 0; v < n; v++) {
       if (!sea(v)) continue;
@@ -151,7 +153,17 @@ export function oceanCurrents(
     }
   }
 
-  // Flow runs along the contours of psi: velocity = (position) x (gradient of psi).
+  return { velocity: currentsFromPsi(lattice, elevation, psi), psi };
+}
+
+/**
+ * The velocity of the surface currents from their streamfunction: flow runs along its contours, (position) x (gradient of psi), scaled
+ * so a typical strong current is half the top speed and no current passes the top. Xyz per point, zero on land.
+ */
+export function currentsFromPsi(lattice: Lattice, elevation: ArrayLike<number>, psi: Float64Array): Float64Array {
+  const { positions: p } = lattice;
+  const n = lattice.vertexCount;
+  const sea = (v: number) => elevation[v]! <= 0;
   const slope = gradient(lattice, psi);
   const u = new Float64Array(n * 3);
   const speeds: number[] = [];
@@ -175,7 +187,7 @@ export function oceanCurrents(
     if (speed > MAX_CURRENT) { const k = MAX_CURRENT / speed; sx *= k; sy *= k; sz *= k; }
     u[v * 3] = sx; u[v * 3 + 1] = sy; u[v * 3 + 2] = sz;
   }
-  return { velocity: u, psi };
+  return u;
 }
 
 /**
@@ -195,7 +207,7 @@ export function oceanHeatAnomaly(
   const { positions: p, offsets, neighbors } = lattice;
   const n = lattice.vertexCount;
   const relax = Math.max(km * 4e-5, 0.01); // so warm water travels a few thousand km before it has cooled
-  const sweeps = Math.min(600, Math.max(12, Math.round(((previous ? 0.5 : 1) * EFFORT[level] * 2) / relax)));
+  const sweeps = Math.min(600, Math.max(12, Math.round(((previous ? 0.25 : 1) * EFFORT[level] * 2) / relax)));
   let t = Float64Array.from(equilibrium, (e, v) => e + (previous ? previous[v]! : 0)), next = new Float64Array(n);
   for (let pass = 0; pass < sweeps; pass++) {
     for (let v = 0; v < n; v++) {

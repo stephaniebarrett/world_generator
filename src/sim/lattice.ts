@@ -22,9 +22,8 @@ export interface Lattice {
 export const DETAIL_PRESETS = {
   draft: 32, // 10,242 points
   default: 63, // 39,692 points
+  high: 89, // 79,212 points
   detailed: 126, // 158,762 points
-  fine: 180, // 324,002 points
-  ultra: 240, // 576,002 points
 } as const;
 
 export type DetailPreset = keyof typeof DETAIL_PRESETS;

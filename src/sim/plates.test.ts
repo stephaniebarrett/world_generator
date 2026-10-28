@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { buildLattice } from './lattice';
 import { generatePlates, layoutPlates } from './plates';
 import { buildState, elevationFromThickness, newRecipe, type BrushEdit } from './world';
@@ -38,6 +38,9 @@ function landmassOf(state: ReturnType<typeof worldWith>): number[][] {
 }
 
 const distinctPlates = (plateOf: Int32Array, pts: number[]) => new Set(pts.map((v) => plateOf[v]!)).size;
+
+// Some of these lay out many plates and run slowly when the whole suite is running at once.
+vi.setConfig({ testTimeout: 60000 });
 
 describe('generatePlates', () => {
   const twoContinents = worldWith([land(0, 0, 1, 0.5), land(0, 0, -1, 0.45)]);

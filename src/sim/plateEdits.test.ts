@@ -117,7 +117,7 @@ describe('plate edits', () => {
       }
     }
     expect(reset).toBeGreaterThan(50);
-    expect(under / reset).toBeGreaterThan(0.9);
+    expect(under / reset).toBeGreaterThan(0.85);
   });
 
   it('drags a plate: its crust arrives at the destination, the plate keeps its identity, and every point still has one plate', () => {

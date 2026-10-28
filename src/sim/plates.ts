@@ -11,10 +11,13 @@
 //
 // Only + - * / sqrt and integer ops are used, with fixed iteration order.
 
-import type { Lattice } from './lattice';
+import { buildLattice, type Lattice } from './lattice';
+import { LatticeIndex } from './latticeIndex';
 import { createRng, type Rng } from './rng';
 import { elevationFromThickness } from './crust';
 import { plateOmega } from './motion';
+import { fractalNoiseBands } from './roughness';
+import { randomMember } from './sample';
 import type { WorldState } from './world';
 
 export interface Plate {
@@ -121,7 +124,7 @@ function farthestCandidate(
   let best = -1;
   let bestDist = -1;
   for (let i = 0; i < tries; i++) {
-    const c = pool[rng.int(pool.length)]!;
+    const c = randomMember(lattice, pool, rng);
     let nearest = Infinity;
     for (const s of seeds) nearest = Math.min(nearest, chord2(lattice, c, s));
     for (const a of avoid) nearest = Math.min(nearest, chord2(lattice, c, a));
@@ -225,31 +228,54 @@ function grow(lattice: Lattice, label: Int32Array, mask: Uint8Array, noise: Floa
   }
 }
 
-/** Smooth random field in [0, 1]: random values blurred over the lattice, then stretched back to full range. */
-export function smoothedNoise(lattice: Lattice, rng: Rng, passes = 10): Float64Array {
-  let cur = new Float64Array(lattice.vertexCount);
-  for (let v = 0; v < cur.length; v++) cur[v] = rng.next();
-  // Each pass averages with the neighbours, so more passes means broader features.
-  for (let pass = 0; pass < passes; pass++) {
-    const next = new Float64Array(cur.length);
-    for (let v = 0; v < cur.length; v++) {
-      let sum = cur[v]!;
-      const from = lattice.offsets[v]!;
-      const to = lattice.offsets[v + 1]!;
-      for (let k = from; k < to; k++) sum += cur[lattice.neighbors[k]!]!;
-      next[v] = sum / (to - from + 1);
-    }
-    cur = next;
+/**
+ * A smooth random field, mostly within [0, 1], that depends only on where a point is on the sphere (waves of the given frequencies, per
+ * unit of radius, and weights). The same seed gives the same field on a coarse lattice and a fine one, unlike noise that is blurred
+ * across the lattice, whose features shrink as the lattice gets finer.
+ */
+export function positionNoise(lattice: Lattice, rng: Rng, frequencies: readonly number[], weights: readonly number[]): Float64Array {
+  const seed = rng.int(0x40000000);
+  const out = new Float64Array(lattice.vertexCount);
+  for (let v = 0; v < out.length; v++) {
+    const n = fractalNoiseBands(lattice.positions[v * 3]!, lattice.positions[v * 3 + 1]!, lattice.positions[v * 3 + 2]!, seed, frequencies, weights);
+    out[v] = Math.min(1, Math.max(0, 0.5 + 0.75 * n));
   }
-  let lo = Infinity;
-  let hi = -Infinity;
-  for (const x of cur) {
-    if (x < lo) lo = x;
-    if (x > hi) hi = x;
+  return out;
+}
+
+/** The plates are always laid out on a lattice of this frequency (about 40,000 points), whatever detail the world is simulated at. */
+export const PLATE_LAYOUT_FREQUENCY = 63;
+const layouts = new Map<string, PlateSetup>();
+
+/**
+ * The plates of a world: where they are, how many there are and how each moves. These come from the seed alone and are the same at
+ * every simulation detail: the layout is worked out once on a fixed lattice and then handed to the lattice in use, which only
+ * decides how finely the borders are drawn. (A finer lattice does not throw the dice again, and a coarser one only loses a plate
+ * if it is smaller than a cell.)
+ */
+export function layoutPlates(lattice: Lattice, seed: string, options: PlateOptions = {}): PlateSetup {
+  const reference = buildLattice(PLATE_LAYOUT_FREQUENCY);
+  const key = `${seed}|${options.targetCount ?? ''}|${options.minorCount ?? ''}`;
+  let base = layouts.get(key);
+  if (!base) {
+    base = layoutPlatesOn(reference, seed, options);
+    if (layouts.size >= 6) layouts.delete(layouts.keys().next().value!);
+    layouts.set(key, base);
   }
-  const range = hi - lo || 1;
-  for (let v = 0; v < cur.length; v++) cur[v] = (cur[v]! - lo) / range;
-  return cur;
+  if (lattice.frequency === PLATE_LAYOUT_FREQUENCY) return { plateOf: Int32Array.from(base.plateOf), plates: [...base.plates] };
+  // Each point takes the plate at the same spot on the reference lattice.
+  const from = new LatticeIndex(reference);
+  const plateOf = new Int32Array(lattice.vertexCount);
+  for (let v = 0; v < plateOf.length; v++) plateOf[v] = base.plateOf[from.nearest(lattice.positions[v * 3]!, lattice.positions[v * 3 + 1]!, lattice.positions[v * 3 + 2]!)]!;
+  const here = new LatticeIndex(lattice);
+  const plates = base.plates.map((p) => ({
+    ...p,
+    seedVertex: here.nearest(reference.positions[p.seedVertex * 3]!, reference.positions[p.seedVertex * 3 + 1]!, reference.positions[p.seedVertex * 3 + 2]!),
+  }));
+  // A coarse lattice can leave a cell cut off from its plate, or four plates meeting at a point; tidy the borders for this lattice.
+  removeFourWayJunctions(lattice, plateOf);
+  joinStrays(lattice, plateOf);
+  return dropEmpty(plateOf, plates);
 }
 
 /**
@@ -257,11 +283,11 @@ export function smoothedNoise(lattice: Lattice, rng: Rng, passes = 10): Float64A
  * irregular regions, each with its own rotation. Land does not move the plates; painting a continent leaves
  * the layout as it was.
  */
-export function layoutPlates(lattice: Lattice, seed: string, options: PlateOptions = {}): PlateSetup {
+function layoutPlatesOn(lattice: Lattice, seed: string, options: PlateOptions): PlateSetup {
   const n = lattice.vertexCount;
   const rng = createRng(seed).fork('plates');
   const target = options.targetCount ?? 8 + rng.int(5);
-  const noise = smoothedNoise(lattice, rng.fork('boundary-noise'));
+  const noise = positionNoise(lattice, rng.fork('boundary-noise'), [3, 6], [1, 0.5]);
 
   const label = new Int32Array(n).fill(-1);
   const seedVertex: number[] = [];
@@ -273,7 +299,7 @@ export function layoutPlates(lattice: Lattice, seed: string, options: PlateOptio
     label[s] = seedVertex.length;
     seedVertex.push(s);
   }
-  const fineNoise = smoothedNoise(lattice, rng.fork('fine-noise'), 3);
+  const fineNoise = positionNoise(lattice, rng.fork('fine-noise'), [7, 14], [1, 0.5]);
   const weights = rng.fork('weights');
   const weight = seedVertex.map(() => 0.5 + 1.5 * weights.next() * weights.next() + 0.5 * weights.next());
   grow(lattice, label, new Uint8Array(n).fill(1), noise, fineNoise, weight);
@@ -404,7 +430,7 @@ function addMinorPlates(lattice: Lattice, plateOf: Int32Array, firstId: number, 
     if (c >= 2) sites.push(v);
   }
   if (sites.length === 0) return [];
-  const noise = smoothedNoise(lattice, rng.fork('shape'), 4);
+  const noise = positionNoise(lattice, rng.fork('shape'), [5, 10], [1, 0.5]);
   const chosen: number[] = [];
   const chord = (a: number, b: number) => {
     const dx = positions[a * 3]! - positions[b * 3]!, dy = positions[a * 3 + 1]! - positions[b * 3 + 1]!, dz = positions[a * 3 + 2]! - positions[b * 3 + 2]!;
@@ -415,7 +441,7 @@ function addMinorPlates(lattice: Lattice, plateOf: Int32Array, firstId: number, 
     const pool = triple.length > 0 && rng.next() < 0.5 ? triple : sites;
     let best = -1, bestGap = -1;
     for (let k = 0; k < 12; k++) {
-      const cand = pool[rng.int(pool.length)]!;
+      const cand = randomMember(lattice, pool, rng);
       let gap = Infinity;
       for (const o of chosen) gap = Math.min(gap, chord(cand, o));
       if (chosen.length === 0) gap = 1;
@@ -426,8 +452,8 @@ function addMinorPlates(lattice: Lattice, plateOf: Int32Array, firstId: number, 
   // Each minor plate is an irregular, elongated patch around its centre (nearest centre wins): stretched along a random
   // direction, with its edge bent by noise at two scales, so none comes out round.
   const label = Int32Array.from(plateOf);
-  const coarse = smoothedNoise(lattice, rng.fork('shape-coarse'), 7);
-  const fine = smoothedNoise(lattice, rng.fork('shape-fine'), 2);
+  const coarse = positionNoise(lattice, rng.fork('shape-coarse'), [3.5, 7], [1, 0.5]);
+  const fine = positionNoise(lattice, rng.fork('shape-fine'), [10, 20], [1, 0.5]);
   const shape = chosen.map(() => {
     const angle = rng.next() * 3.141592653589793;
     return { ux: Math.cos(angle), uy: Math.sin(angle), long: 0.11 + 0.05 * rng.next(), stretch: 1.7 + 1.0 * rng.next() };

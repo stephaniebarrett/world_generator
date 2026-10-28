@@ -158,7 +158,7 @@ describe('generate land', () => {
       return on / land;
     };
     let aware = 0, blind = 0;
-    const seeds = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+    const seeds = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p'];
     for (const seed of seeds) {
       aware += onBoundary(generate(edit('continents', 0.3, seed), true).thickness);
       blind += onBoundary(generate(edit('continents', 0.3, seed), false).thickness);

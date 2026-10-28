@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { DETAIL_PRESETS, buildLattice, type DetailPreset, type Lattice } from './sim/lattice';
+import { DETAIL_PRESETS, buildLattice, vertexCountFor, type DetailPreset, type Lattice } from './sim/lattice';
 import { applyBrush, newRecipe, type BrushEdit, type GenerateEdit, type PlateEdit, type Recipe, type WorldState } from './sim/world';
 import { buildCellBorders, buildCellMesh, type CellBorders, type CellMesh } from './view/cells';
 import { buildCellGeometry, surfaceRadius, updateCellColors, updateCellHeights } from './view/cellGeometry';
@@ -1292,7 +1292,7 @@ landStyleSelect.addEventListener('change', () => {
   coverReadout.textContent = `${landCoverInput.value}%`;
 });
 
-// Generate land: adds continents that suit the plates as they are now. Each click makes a new layout.
+// Generate land: makes continents that suit the plates as they are now. Each click replaces the last generated land with the same layout for the same settings.
 generateButton.addEventListener('click', () => {
   if (generateButton.disabled) return;
   // The work runs on this thread, so let the busy label paint before it starts.
@@ -1302,15 +1302,16 @@ generateButton.addEventListener('click', () => {
   requestAnimationFrame(() => setTimeout(() => {
     try {
       clearSimulation();
-      const earlier = recipe.edits.filter((e) => e.kind === 'generate').length;
+      // Each click replaces the last generated land with the layout these settings give, so the same seed, style, and cover always
+      // make the same land. What was painted or changed by hand stays. Change the seed for a different layout.
       const edit: GenerateEdit = {
         kind: 'generate',
         style: landStyleSelect.value as GenerateEdit['style'],
         landFraction: Number(landCoverInput.value) / 100,
-        seed: `${recipe.seed}#${earlier}`,
+        seed: `${recipe.seed}#0`,
         time: 0,
       };
-      recipe = { ...recipe, edits: [...recipe.edits, edit] };
+      recipe = { ...recipe, edits: [...recipe.edits.filter((e) => e.kind !== 'generate'), edit] };
       refreshPrepared();
       scheduleSave();
     } finally {
@@ -1323,6 +1324,7 @@ generateButton.addEventListener('click', () => {
 
 // Simulation detail changes how finely the world is computed: the same seed and edits are replayed on the new lattice.
 detailSelect.addEventListener('change', () => {
+  if (!(detailSelect.value in DETAIL_PRESETS)) return; // the custom entry of an opened file is only a label
   startWorld({ ...recipe, frequency: DETAIL_PRESETS[detailSelect.value as DetailPreset] });
   history.replaceState(null, '', `?seed=${encodeURIComponent(recipe.seed)}&detail=${detailSelect.value}`);
   scheduleSave();
@@ -1385,7 +1387,14 @@ function loadWorldFile(file: WorldFile): void {
   applyPlanet(file.planet);
   seedInput.value = file.recipe.seed;
   const preset = (Object.keys(DETAIL_PRESETS) as DetailPreset[]).find((k) => DETAIL_PRESETS[k] === file.recipe.frequency);
+  // A file made at a detail level that is no longer offered (such as the old 320k and 580k presets) still opens at its own detail.
+  detailSelect.querySelector('option[value="custom"]')?.remove();
   if (preset) detailSelect.value = preset;
+  else {
+    const option = new Option(`Custom (~${Math.round(vertexCountFor(file.recipe.frequency) / 1000)}k points)`, 'custom');
+    detailSelect.append(option);
+    detailSelect.value = 'custom';
+  }
   startWorld(file.recipe);
 }
 

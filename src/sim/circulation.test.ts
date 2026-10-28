@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CLIMATE, computeClimate } from './climate';
+import { climateForThickness, inlineStages, keyframeClimate } from './runner';
 import { buildLattice } from './lattice';
 
 // Each climate solve with circulation takes about a second, and several run in a test, so allow for a busy machine.
@@ -105,8 +106,26 @@ describe('sea and air together', () => {
     const b = computeClimate(lattice, elevation, on);
     expect(Array.from(a.meanWindEast)).toEqual(Array.from(b.meanWindEast));
     expect(Array.from(a.currentEast)).toEqual(Array.from(b.currentEast));
-    // A reused ocean gives the same climate as solving it again.
-    const again = computeClimate(lattice, elevation, on, { ocean: a.ocean });
-    expect(Array.from(again.meanPrecipitation)).toEqual(Array.from(a.meanPrecipitation));
+  });
+
+  it('starts the next keyframe from where the last left the sea and the air, and stays close to solving from scratch', () => {
+    const first = computeClimate(lattice, elevation, on);
+    expect(first.circulation).not.toBeNull();
+    const next = computeClimate(lattice, elevation, on, { previous: first.circulation });
+    const again = computeClimate(lattice, elevation, on, { previous: first.circulation });
+    expect(Array.from(next.meanTemperature)).toEqual(Array.from(again.meanTemperature)); // deterministic
+    // The same land one keyframe later has settled: the sea stays near what it was.
+    const drift = mean(next.currentEast, () => true) - mean(first.currentEast, () => true);
+    expect(Math.abs(drift)).toBeLessThan(0.05);
+    for (const f of [next.meanTemperature, next.meanPrecipitation, next.currentEast, next.meanWindEast]) expect(f.every(Number.isFinite)).toBe(true);
+  });
+
+  it('gives the same answer whether the stages run in order on one thread or are handed out to run side by side', async () => {
+    const thickness = Float32Array.from({ length: N }, (_, v) => (elevation[v]! > 0 ? 40 : 7));
+    const serial = climateForThickness(40, thickness, on);
+    const staged = await keyframeClimate(inlineStages(40), 40, thickness, on);
+    expect(Array.from(staged.climate.temperature)).toEqual(Array.from(serial.temperature));
+    expect(Array.from(staged.climate.precipitation)).toEqual(Array.from(serial.precipitation));
+    expect(Array.from(staged.climate.currentEast)).toEqual(Array.from(serial.currentEast));
   });
 });

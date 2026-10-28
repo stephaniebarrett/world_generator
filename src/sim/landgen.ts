@@ -5,9 +5,11 @@
 // Only + - * / sqrt are used (no trigonometry), so results are identical on every machine.
 
 import { cellKm } from './climate';
-import type { Plate } from './plates';
+import { PLATE_LAYOUT_FREQUENCY, type Plate } from './plates';
+import { LatticeIndex } from './latticeIndex';
+import { nearestInPool, randomDirection, randomMember } from './sample';
 import { buildTerrainCached } from './terrain';
-import type { Lattice } from './lattice';
+import { buildLattice, type Lattice } from './lattice';
 import { createRng, hashSeed, type Rng } from './rng';
 import { fractalNoiseBands } from './roughness';
 import { LAND_THICKNESS, OCEAN_THICKNESS, SEA_LEVEL_THICKNESS } from './crust';
@@ -88,6 +90,8 @@ interface PlateInfo {
   readonly heart: Int32Array;
   /** Per plate id: all its vertices. */
   readonly members: readonly (readonly number[])[];
+  /** Which plate holds the spot nearest a direction, for choosing plates by where they are rather than by their number. */
+  plateAt(x: number, y: number, z: number): number;
 }
 
 function plateInfo(lattice: Lattice, plateOf: Int32Array): PlateInfo {
@@ -128,26 +132,44 @@ function plateInfo(lattice: Lattice, plateOf: Int32Array): PlateInfo {
     const id = plateOf[v]!;
     members[id]!.push(v);
     area[id] = area[id]! + 1 / n;
-    if (heart[id]! < 0 || depthKm[v]! > depthKm[heart[id]!]!) heart[id] = v;
   }
-  return { depthKm, area, heart, members };
+  // A plate's heart is the point of it nearest its middle. (The point farthest from every border would do, but among the many points
+  // that are nearly as far it is chosen by lattice numbering, so it moves from one detail level to the next.)
+  for (let id = 0; id < ids; id++) {
+    const m = members[id]!;
+    if (m.length === 0) continue;
+    let x = 0, y = 0, z = 0;
+    for (const v of m) { x += lattice.positions[v * 3]!; y += lattice.positions[v * 3 + 1]!; z += lattice.positions[v * 3 + 2]!; }
+    const len = Math.sqrt(x * x + y * y + z * z);
+    heart[id] = nearestInPool(lattice, m, len > 1e-9 ? [x / len, y / len, z / len] : [0, 0, 1]);
+  }
+  // Plates are looked up on the reference lattice every world's plates are laid out on, not on this one: a dart that lands within a cell
+  // of a border then reads the same plate at every detail level.
+  const reference = buildLattice(PLATE_LAYOUT_FREQUENCY);
+  const here = new LatticeIndex(lattice);
+  const onReference = new Int32Array(reference.vertexCount);
+  for (let r = 0; r < onReference.length; r++) onReference[r] = plateOf[here.nearest(reference.positions[r * 3]!, reference.positions[r * 3 + 1]!, reference.positions[r * 3 + 2]!)]!;
+  const referenceIndex = new LatticeIndex(reference);
+  return { depthKm, area, heart, members, plateAt: (x, y, z) => onReference[referenceIndex.nearest(x, y, z)]! };
 }
 
-/** Choose `count` plates, favouring big ones, without repeats. */
+/** Plates smaller than this share of the globe are too small to carry a continent (and their edges are the first to shift between detail levels). */
+const MIN_CONTINENT_PLATE = 0.015;
+
+/**
+ * Choose `count` plates, favouring big ones. A plate is chosen by throwing a dart at a random spot on the globe and taking the plate
+ * there, so big plates are likelier in proportion to their area. That does not depend on how the plates are numbered, and each pick has
+ * darts of its own and does not depend on the other picks, so a dart that lands next to a plate border and lands on the other plate at
+ * another detail level changes only that one pick. Two picks can land on the same plate, and then it carries two lands.
+ */
 function pickPlates(info: PlateInfo, count: number, rng: Rng): number[] {
-  const ids = [...info.area.keys()].filter((id) => info.heart[id]! >= 0);
   const chosen: number[] = [];
-  while (chosen.length < count && ids.length > 0) {
-    let total = 0;
-    for (const id of ids) total += info.area[id]!;
-    let roll = rng.next() * total;
-    let at = 0;
-    for (let i = 0; i < ids.length; i++) {
-      roll -= info.area[ids[i]!]!;
-      if (roll <= 0) { at = i; break; }
+  for (let slot = 0; slot < count; slot++) {
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const [x, y, z] = randomDirection(rng.fork(`dart${slot}.${attempt}`));
+      const id = info.plateAt(x, y, z);
+      if (info.heart[id]! >= 0 && info.area[id]! >= MIN_CONTINENT_PLATE) { chosen.push(id); break; }
     }
-    chosen.push(ids[at]!);
-    ids.splice(at, 1);
   }
   return chosen;
 }
@@ -187,7 +209,7 @@ function makePlateBlobs(style: Style, landFraction: number, rng: Rng, lattice: L
   const blobs: Blob[] = [];
   // Land need not sit neatly in the middle of a plate: half the time it is pushed toward one edge of the plate, and it
   // may spill over the boundary (continents do straddle plates).
-  const anchor = (plate: number): number => {
+  const anchor = (plate: number, own: Rng): number => {
     const all = info.members[plate]!;
     // Of several tries, take the spot farthest from the land already placed, so continents do not run into each other.
     const gap = (v: number) => {
@@ -197,10 +219,10 @@ function makePlateBlobs(style: Style, landFraction: number, rng: Rng, lattice: L
     };
     const tries = [info.heart[plate]!];
     if (all.length > 0) {
-      const edgeward = rng.next() < 0.5;
+      const edgeward = own.next() < 0.5;
       for (let i = 0; i < 8; i++) {
-        let c = all[rng.int(all.length)]!;
-        if (edgeward) { const d = all[rng.int(all.length)]!; if (info.depthKm[d]! < info.depthKm[c]!) c = d; }
+        let c = randomMember(lattice, all, own);
+        if (edgeward) { const d = randomMember(lattice, all, own); if (info.depthKm[d]! < info.depthKm[c]!) c = d; }
         tries.push(c);
       }
     }
@@ -208,57 +230,60 @@ function makePlateBlobs(style: Style, landFraction: number, rng: Rng, lattice: L
     for (const c of tries) { const g = gap(c); if (g > bestGap) { best = c; bestGap = g; } }
     return best;
   };
-  const add = (_v: number, r: number, plate: number) =>
-    blobs.push({ c: at(anchor(plate)), r: Math.min(r, 0.9 * info.area[plate]!), weight: 0.75 + 0.25 * rng.next() });
+  // Each blob has a random stream of its own, so one blob landing on a different plate at another detail does not shift the others.
+  const add = (_v: number, r: number, plate: number, slot: number) => {
+    const own = rng.fork(`blob${slot}`);
+    blobs.push({ c: at(anchor(plate, own)), r: Math.min(r, 0.9 * info.area[plate]!), weight: 0.75 + 0.25 * own.next() });
+  };
   const byArea = [...info.area.keys()].filter((id) => info.heart[id]! >= 0).sort((a, b) => info.area[b]! - info.area[a]! || a - b);
 
   switch (style) {
     case 'pangaea': {
-      // One supercontinent on the biggest plate, big enough to spill across its neighbours, plus a few satellites.
-      const main = byArea[0]!;
-      blobs.push({ c: at(anchor(main)), r: 0.85 * landFraction, weight: 1 });
-      for (const id of pickPlates(info, 3, rng)) if (id !== main) add(info.heart[id]!, 0.05 * landFraction, id);
+      // One supercontinent on a big plate (picked by dart, so two near-equal plates cannot swap places between detail levels), big enough
+      // to spill across its neighbours, plus a few satellites.
+      const main = pickPlates(info, 1, rng.fork('main'))[0] ?? byArea[0]!;
+      blobs.push({ c: at(anchor(main, rng.fork('blob-main'))), r: 0.85 * landFraction, weight: 1 });
+      pickPlates(info, 3, rng).forEach((id, i) => { if (id !== main) add(info.heart[id]!, 0.05 * landFraction, id, i); });
       break;
     }
     case 'two': {
-      // The biggest plate, and the plate far from it.
-      const first = byArea[0]!;
+      // A big plate, and the farthest of a few other big plates from it (picked by dart, as above).
+      const [first = byArea[0]!, ...others] = pickPlates(info, 5, rng.fork('two'));
       const a = at(info.heart[first]!);
-      let far = byArea[1] ?? first;
+      let far = others[0] ?? byArea[1] ?? first;
       let farGap = -1;
-      for (const id of byArea.slice(0, Math.max(2, Math.ceil(byArea.length / 2)))) {
+      for (const id of others) {
         const c = at(info.heart[id]!);
         const gap = (c[0] - a[0]) ** 2 + (c[1] - a[1]) ** 2 + (c[2] - a[2]) ** 2;
-        if (id !== first && gap > farGap) { far = id; farGap = gap; }
+        if (gap > farGap) { far = id; farGap = gap; }
       }
-      add(info.heart[first]!, 0.45 * landFraction, first);
-      add(info.heart[far]!, 0.45 * landFraction, far);
+      add(info.heart[first]!, 0.45 * landFraction, first, 0);
+      add(info.heart[far]!, 0.45 * landFraction, far, 1);
       break;
     }
     case 'archipelago': {
       // Islands scattered over the globe, whatever the plates.
-      const pool = Array.from({ length: lattice.vertexCount }, (_, v) => v);
       const centres: Array<[number, number, number]> = [];
       for (let i = 0; i < 28; i++) {
-        let best = pool[rng.int(pool.length)]!;
+        // Of several random spots, take the one farthest from the islands already placed.
+        let best = randomDirection(rng);
         let bestGap = -1;
         for (let k = 0; k < 24; k++) {
-          const cand = pool[rng.int(pool.length)]!;
-          const c = at(cand);
+          const c = randomDirection(rng);
           let gap = Infinity;
           for (const o of centres) gap = Math.min(gap, (c[0] - o[0]) ** 2 + (c[1] - o[1]) ** 2 + (c[2] - o[2]) ** 2);
           if (centres.length === 0) gap = 0;
-          if (gap > bestGap) { bestGap = gap; best = cand; }
+          if (gap > bestGap) { bestGap = gap; best = c; }
         }
-        centres.push(at(best));
-        blobs.push({ c: at(best), r: i < 4 ? 0.09 * landFraction : (0.012 + 0.03 * rng.next()) * landFraction, weight: 0.75 + 0.25 * rng.next() });
+        centres.push(best);
+        blobs.push({ c: best, r: i < 4 ? 0.09 * landFraction : (0.012 + 0.03 * rng.next()) * landFraction, weight: 0.75 + 0.25 * rng.next() });
       }
       break;
     }
     default: {
       // Continents of unequal size, one on each of several plates.
       const chosen = pickPlates(info, Math.min(6, byArea.length), rng);
-      chosen.forEach((id, i) => add(info.heart[id]!, (0.34 / (1 + i * 0.7)) * landFraction * 3, id));
+      chosen.forEach((id, i) => add(info.heart[id]!, (0.34 / (1 + i * 0.7)) * landFraction * 3, id, i));
     }
   }
   return blobs;

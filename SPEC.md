@@ -137,7 +137,7 @@ Scripts in `scripts/` drive the app in headless Chrome and save screenshots (the
 ## Built since: run and detail settings, smooth biomes
 - Keyframe spacing (World panel): a run is saved to the timeline every 5, 10, 15 or 20 My (always including the last step); the timeline ticks follow the spacing the run was made with.
   The physics step stays 1 My, so a wider spacing only skips climate passes and saved frames, which makes runs faster.
-- Two finer presets for both Simulation and Render detail: Fine (~324k points) and Ultra (~576k points). Fine loads and draws in about a minute in the browser; Ultra is untested there.
+- Two finer presets for both Simulation and Render detail: Fine (~324k points) and Ultra (~576k points). Fine loads and draws in about a minute in the browser; Ultra is untested there. (Later replaced by a single High step at ~80k points, with the old High renamed Very high; worlds saved at the finer levels still open.)
 - Biome colours blend smoothly: the land climate grid is blurred (about 2.5 C and a quarter of a doubling of rainfall), and alpine ground and ice fade in over a few hundred metres of height. The coastline stays sharp.
 
 ## Terrain, geology and calibration (added since)

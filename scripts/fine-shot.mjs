@@ -1,6 +1,6 @@
 // Load a high detail preset, generate land, and look at biomes.
 import puppeteer from 'puppeteer-core';
-const [out = '.', detail = 'fine'] = process.argv.slice(2);
+const [out = '.', detail = 'detailed'] = process.argv.slice(2);
 const browser = await puppeteer.launch({ executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: 'new',
   args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--window-size=1400,900'], defaultViewport: { width: 1400, height: 900 } });
 const page = await browser.newPage();

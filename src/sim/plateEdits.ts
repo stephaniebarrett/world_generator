@@ -7,7 +7,7 @@ import type { Lattice } from './lattice';
 import { MAX_THICKNESS, MIN_THICKNESS } from './crust';
 import { LatticeIndex } from './latticeIndex';
 import { eastNorth, plateOmega } from './motion';
-import { smoothedNoise, type Plate, type PlateSetup } from './plates';
+import { positionNoise, type Plate, type PlateSetup } from './plates';
 import { createRng } from './rng';
 import { OCEAN_THICKNESS, type AddPlateEdit, type DragPlateEdit, type PaintPlateEdit, type PlateEdit, type PlateMotionEdit, type RemovePlateEdit, type SplitPlateEdit, type WorldState } from './world';
 
@@ -44,7 +44,7 @@ export class PlateEditor {
     this.plates = [...setup.plates];
     this.seed = seed;
     this.index = new LatticeIndex(world.lattice);
-    this.fillNoise = smoothedNoise(world.lattice, createRng(seed).fork('fill-noise'));
+    this.fillNoise = positionNoise(world.lattice, createRng(seed).fork('fill-noise'), [3, 6], [1, 0.5]);
   }
 
   apply(edit: PlateEdit): void {
@@ -55,7 +55,7 @@ export class PlateEditor {
     } else if (edit.kind === 'paintPlate') {
       paintPlate(lattice, index, edit, plateOf);
     } else if (edit.kind === 'splitPlate') {
-      this.splitNoise ??= smoothedNoise(lattice, createRng(this.seed).fork('split-noise'), 6);
+      this.splitNoise ??= positionNoise(lattice, createRng(this.seed).fork('split-noise'), [4, 8], [1, 0.5]);
       splitPlate(lattice, index, edit, plateOf, plates, this.splitNoise);
     } else if (edit.kind === 'plateMotion') {
       const id = plateOf[index.nearest(edit.at[0], edit.at[1], edit.at[2])]!;

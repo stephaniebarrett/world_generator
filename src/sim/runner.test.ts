@@ -74,7 +74,7 @@ describe('runSimulation with climate elsewhere', () => {
     const slow = {
       climate: async (thickness: Float32Array, rock: Uint8Array) => {
         await new Promise((r) => setTimeout(r, 30)); // arrives well after the next steps have run
-        return climateForThickness(params.frequency, thickness, undefined, rock);
+        return { climate: climateForThickness(params.frequency, thickness, undefined, rock), circulation: null };
       },
       yield: () => new Promise<void>((r) => setTimeout(r, 1)),
     };

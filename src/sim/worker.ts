@@ -1,8 +1,8 @@
 // Web Worker entry: runs simulations and climate passes off the main thread.
 
 import type { ClimateParams } from './climate';
-import type { ClimateJob, ClimateResult } from './climateWorker';
-import { climateBuffers, climateForThickness, inlineClimate, runSimulation, type ClimateAndWater, type ClimateHost, type Frame, type RunParams } from './runner';
+import type { StageJob, StageResult } from './climateWorker';
+import { climateBuffers, climateForThickness, inlineClimate, keyframeClimate, runSimulation, type ClimateAndWater, type ClimateHost, type ClimateStages, type Frame, type RunParams } from './runner';
 
 export type WorkerRequest =
   | { type: 'run'; params: RunParams }
@@ -21,36 +21,68 @@ interface WorkerScope {
 }
 const ctx = self as unknown as WorkerScope;
 
-/** A second worker for the climate, so the plates keep moving while it works; falls back to doing it in place if one cannot be made. */
+/** Most helper threads the climate may use (the plates have a thread of their own): the sea and the winds are two stages and the seasons four. */
+const MAX_CLIMATE_HELPERS = 4;
+
+/**
+ * Helper threads for the stages of each keyframe's climate, so the plates keep moving while the climate is worked out, and the stages of
+ * a keyframe run side by side. Falls back to doing the stages here if threads cannot be made.
+ */
 function climateWorkerHost(params: RunParams): { host: ClimateHost; close(): void } {
-  let helper: Worker;
+  const count = Math.max(1, Math.min(MAX_CLIMATE_HELPERS, (typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : 4) - 1));
+  const helpers: Worker[] = [];
   try {
-    helper = new Worker(new URL('./climateWorker.ts', import.meta.url), { type: 'module' });
+    for (let i = 0; i < count; i++) helpers.push(new Worker(new URL('./climateWorker.ts', import.meta.url), { type: 'module' }));
   } catch {
+    for (const h of helpers) h.terminate();
     return { host: inlineClimate(params), close() {} };
   }
-  const waiting = new Map<number, { ok(c: ClimateAndWater): void; fail(e: Error): void }>();
-  helper.addEventListener('message', (e: MessageEvent<ClimateResult>) => {
-    const { id, ...rest } = e.data;
-    const w = waiting.get(id);
-    waiting.delete(id);
-    if ('error' in rest) w?.fail(new Error(rest.error));
-    else w?.ok(rest as ClimateAndWater);
-  });
+  const waiting = new Map<number, { ok(r: StageResult): void; fail(e: Error): void; helper: Worker }>();
+  const queue: { job: StageJob; ok(r: StageResult): void; fail(e: Error): void }[] = [];
+  const busy = new Set<Worker>();
+  const dispatch = () => {
+    for (const helper of helpers) {
+      if (queue.length === 0) return;
+      if (busy.has(helper)) continue;
+      const { job, ok, fail } = queue.shift()!;
+      busy.add(helper);
+      waiting.set(job.id, { ok, fail, helper });
+      helper.postMessage(job);
+    }
+  };
+  for (const helper of helpers) {
+    helper.addEventListener('message', (e: MessageEvent<StageResult>) => {
+      const w = waiting.get(e.data.id);
+      waiting.delete(e.data.id);
+      busy.delete(helper);
+      if (w) {
+        if ('error' in e.data) w.fail(new Error(e.data.error));
+        else w.ok(e.data);
+      }
+      dispatch();
+    });
+  }
   let next = 0;
+  const run = <R extends StageResult>(make: (id: number) => StageJob): Promise<R> =>
+    new Promise((ok, fail) => {
+      queue.push({ job: make(next++), ok: ok as (r: StageResult) => void, fail });
+      dispatch();
+    });
+  const base = (id: number, elevation: Float64Array, climate: ClimateParams) => ({ id, frequency: params.frequency, params: climate, elevation: elevation.slice() });
+  const stages: ClimateStages = {
+    currents: async (elevation, climate, previous) => (await run<Extract<StageResult, { stage: 'currents' }>>((id) => ({ ...base(id, elevation, climate), stage: 'currents', previous }))).result,
+    heat: async (elevation, climate, psi, previousWarmth) => (await run<Extract<StageResult, { stage: 'heat' }>>((id) => ({ ...base(id, elevation, climate), stage: 'heat', psi, previousWarmth }))).result,
+    winds: async (elevation, climate, warmth) => (await run<Extract<StageResult, { stage: 'winds' }>>((id) => ({ ...base(id, elevation, climate), stage: 'winds', warmth }))).result,
+    season: async (elevation, climate, s, warmth, wind, lake) => (await run<Extract<StageResult, { stage: 'season' }>>((id) => ({ ...base(id, elevation, climate), stage: 'season', s, warmth, wind, lake }))).result,
+  };
   const channel = new MessageChannel();
   return {
     host: {
-      climate: (thickness, rock) =>
-        new Promise((ok, fail) => {
-          const id = next++;
-          waiting.set(id, { ok, fail });
-          helper.postMessage({ id, frequency: params.frequency, thickness, rock, params: params.climate } satisfies ClimateJob, [thickness.buffer, rock.buffer]);
-        }),
-      // A message to ourselves is delivered after anything already waiting, so replies from the helper are handled.
+      climate: (thickness, rock, previous) => keyframeClimate(stages, params.frequency, thickness, params.climate, rock, previous),
+      // A message to ourselves is delivered after anything already waiting, so replies from the helpers are handled.
       yield: () => new Promise<void>((r) => { channel.port1.onmessage = () => r(); channel.port2.postMessage(0); }),
     },
-    close: () => helper.terminate(),
+    close: () => { for (const h of helpers) h.terminate(); },
   };
 }
 
