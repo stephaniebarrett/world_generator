@@ -14,6 +14,7 @@
 import type { Lattice } from './lattice';
 import { createRng, type Rng } from './rng';
 import { elevationFromThickness } from './crust';
+import { plateOmega } from './motion';
 import type { WorldState } from './world';
 
 export interface Plate {
@@ -279,24 +280,29 @@ export function layoutPlates(lattice: Lattice, seed: string, options: PlateOptio
 
   // Kinematics, drawn in plate order so they never depend on layout details.
   const motion = rng.fork('motion');
-  const randomMotion = (id: number, sv: number): Plate => {
-    let x = 0, y = 0, z = 0, len2 = 0;
-    do {
-      x = motion.next() * 2 - 1;
-      y = motion.next() * 2 - 1;
-      z = motion.next() * 2 - 1;
-      len2 = x * x + y * y + z * z;
-    } while (len2 === 0 || len2 > 1);
-    const len = Math.sqrt(len2);
-    return { id, seedVertex: sv, axis: [x / len, y / len, z / len], angularSpeed: 0.0025 + motion.next() * 0.013 };
+  // Where the plates start out: major plates drift slowly and mostly east or west (not always), with little spin; minor plates
+  // drift and spin faster and are free to go any way. Only the starting motion differs: once a run begins every plate is the same.
+  const randomMotion = (id: number, sv: number, minor: boolean): Plate => {
+    const centre: [number, number, number] = [lattice.positions[sv * 3]!, lattice.positions[sv * 3 + 1]!, lattice.positions[sv * 3 + 2]!];
+    // The same draws for every plate, so the motion never depends on which kind it is.
+    const speedDraw = motion.next(), horizontalDraw = motion.next(), signDraw = motion.next(), tiltDraw = motion.next();
+    const xDraw = motion.next(), yDraw = motion.next(), spinDraw = motion.next();
+    const speed = minor ? 0.005 + 0.013 * speedDraw : 0.002 + 0.0055 * speedDraw;
+    const free: [number, number] = [xDraw * 2 - 1, yDraw * 2 - 1];
+    const horizontal: [number, number] = [signDraw < 0.5 ? -1 : 1, (tiltDraw * 2 - 1) * 0.55];
+    const heading = !minor && horizontalDraw < 0.8 ? horizontal : free;
+    const spin = (spinDraw * 2 - 1) * (minor ? 0.008 : 0.002);
+    const w = plateOmega(centre, heading, speed, spin);
+    const len = Math.sqrt(w[0] * w[0] + w[1] * w[1] + w[2] * w[2]);
+    return { id, seedVertex: sv, axis: len > 0 ? [w[0] / len, w[1] / len, w[2] / len] : [0, 0, 1], angularSpeed: Math.max(len, 0.0015) };
   };
-  const majors = seedVertex.map((sv, id) => randomMotion(id, sv));
+  const majors = seedVertex.map((sv, id) => randomMotion(id, sv, false));
   // Major plates first (one enclosed by another is merged away), then minor plates in the gaps between them.
   const layout = removeEnclaves(lattice, label, majors);
   removeFourWayJunctions(lattice, layout.plateOf);
   const minorCount = options.minorCount ?? 6 + rng.fork('minor-count').int(5);
   const minorSeeds = addMinorPlates(lattice, layout.plateOf, layout.plates.length, minorCount, rng.fork('minor'));
-  const plates = [...layout.plates, ...minorSeeds.map((sv, i) => randomMotion(layout.plates.length + i, sv))];
+  const plates = [...layout.plates, ...minorSeeds.map((sv, i) => randomMotion(layout.plates.length + i, sv, true))];
   joinStrays(lattice, layout.plateOf); // a minor plate can cut a corner off a major one; the bit rejoins its neighbour
   return dropEmpty(layout.plateOf, plates);
 }

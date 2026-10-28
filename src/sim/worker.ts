@@ -62,7 +62,7 @@ ctx.addEventListener('message', async (event) => {
       try {
         await runSimulation(req.params, (frame) => {
           const msg: WorkerMessage = { type: 'frame', frame };
-          ctx.postMessage(msg, [frame.thickness.buffer, frame.plate.buffer, frame.rock.buffer, frame.temperature.buffer, frame.precipitation.buffer, frame.flowTo.buffer, frame.discharge.buffer, frame.lake.buffer, frame.windEast.buffer, frame.windNorth.buffer, frame.currentEast.buffer, frame.currentNorth.buffer]);
+          ctx.postMessage(msg, [frame.thickness.buffer, frame.plate.buffer, frame.omega.buffer, frame.rock.buffer, frame.temperature.buffer, frame.precipitation.buffer, frame.flowTo.buffer, frame.discharge.buffer, frame.lake.buffer, frame.windEast.buffer, frame.windNorth.buffer, frame.currentEast.buffer, frame.currentNorth.buffer]);
         }, (time, keyframe) => ctx.postMessage({ type: 'progress', time, keyframe } satisfies WorkerMessage), host);
       } finally {
         close();

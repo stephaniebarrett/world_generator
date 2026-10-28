@@ -154,6 +154,7 @@
       <button data-tool="splitPlate">Split Plate</button>
       <button data-tool="dragPlate">Drag Plate</button>
       <button data-tool="paintPlate">Paint Plate</button>
+      <button data-tool="editPlate">Edit Plate</button>
       <h2>Edit</h2>
       <button id="undo">Undo</button>
       <div id="hint">Drag to turn the globe, scroll to zoom.</div>
@@ -238,6 +239,8 @@
         <h2>Brush</h2>
         <label>Size <span id="sizeReadout"></span> <input id="radius" type="range" min="0.03" max="0.6" step="0.01" value="0.2" /></label>
         <label>Strength <span id="strengthReadout"></span> <input id="strength" type="range" min="0.05" max="1" step="0.05" value="0.4" /></label>
+        <label>Plate Speed <span id="speedReadout"></span> <input id="plateSpeed" type="range" min="0" max="15" step="0.5" value="5" /></label>
+        <label>Plate Spin <span id="spinReadout"></span> <input id="plateSpin" type="range" min="-1.5" max="1.5" step="0.1" value="0" /></label>
         <div id="brushNone" class="hintline" hidden>This tool has no brush settings.</div>
         <label>When Removing a Plate
           <select id="removeMode">

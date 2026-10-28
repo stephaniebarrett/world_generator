@@ -6,9 +6,10 @@
 import type { Lattice } from './lattice';
 import { MAX_THICKNESS, MIN_THICKNESS } from './crust';
 import { LatticeIndex } from './latticeIndex';
+import { eastNorth, plateOmega } from './motion';
 import { smoothedNoise, type Plate, type PlateSetup } from './plates';
 import { createRng } from './rng';
-import { OCEAN_THICKNESS, type AddPlateEdit, type DragPlateEdit, type PaintPlateEdit, type PlateEdit, type RemovePlateEdit, type SplitPlateEdit, type WorldState } from './world';
+import { OCEAN_THICKNESS, type AddPlateEdit, type DragPlateEdit, type PaintPlateEdit, type PlateEdit, type PlateMotionEdit, type RemovePlateEdit, type SplitPlateEdit, type WorldState } from './world';
 
 /** Amplitude (km) of the seeded noise laid over crust filled in from the surroundings. */
 const FILL_NOISE_KM = 1.5;
@@ -56,6 +57,9 @@ export class PlateEditor {
     } else if (edit.kind === 'splitPlate') {
       this.splitNoise ??= smoothedNoise(lattice, createRng(this.seed).fork('split-noise'), 6);
       splitPlate(lattice, index, edit, plateOf, plates, this.splitNoise);
+    } else if (edit.kind === 'plateMotion') {
+      const id = plateOf[index.nearest(edit.at[0], edit.at[1], edit.at[2])]!;
+      plates[id] = setPlateMotion(lattice, plateOf, plates[id]!, edit);
     } else if (edit.kind === 'removePlate') {
       const at = index.nearest(edit.at[0], edit.at[1], edit.at[2]);
       removePlate(lattice, plateOf[at]!, edit, plateOf, thickness, fillNoise);
@@ -77,6 +81,31 @@ export function applyPlateEdits(world: WorldState, setup: PlateSetup, edits: rea
   const editor = new PlateEditor(world, setup, seed);
   for (const edit of edits) editor.apply(edit);
   return editor.result();
+}
+
+/** The middle of a plate: the mean direction of its points (a pole if it somehow wraps the globe). */
+export function plateCentroid(lattice: Lattice, plateOf: ArrayLike<number>, id: number): [number, number, number] {
+  let x = 0, y = 0, z = 0;
+  for (let v = 0; v < lattice.vertexCount; v++) {
+    if (plateOf[v] !== id) continue;
+    x += lattice.positions[v * 3]!; y += lattice.positions[v * 3 + 1]!; z += lattice.positions[v * 3 + 2]!;
+  }
+  const l = Math.sqrt(x * x + y * y + z * z);
+  return l > 1e-9 ? [x / l, y / l, z / l] : [0, 0, 1];
+}
+
+/** The plate with its drift speed and spin set, keeping the way it was heading (east if it was not going anywhere). */
+function setPlateMotion(lattice: Lattice, plateOf: ArrayLike<number>, plate: Plate, edit: PlateMotionEdit): Plate {
+  const c = plateCentroid(lattice, plateOf, plate.id);
+  const w: [number, number, number] = [plate.axis[0] * plate.angularSpeed, plate.axis[1] * plate.angularSpeed, plate.axis[2] * plate.angularSpeed];
+  // The drift velocity of the centre is omega x centre; its east and north parts give the heading.
+  const vx = w[1] * c[2] - w[2] * c[1], vy = w[2] * c[0] - w[0] * c[2], vz = w[0] * c[1] - w[1] * c[0];
+  const { east, north } = eastNorth(c);
+  const heading: [number, number] = [vx * east[0] + vy * east[1] + vz * east[2], vx * north[0] + vy * north[1] + vz * north[2]];
+  const moving = heading[0] * heading[0] + heading[1] * heading[1] > 1e-14;
+  const next = plateOmega(c, moving ? heading : [1, 0], edit.speed, edit.spin);
+  const len = Math.sqrt(next[0] * next[0] + next[1] * next[1] + next[2] * next[2]);
+  return { ...plate, axis: len > 0 ? [next[0] / len, next[1] / len, next[2] / len] : plate.axis, angularSpeed: len };
 }
 
 function paintPlate(lattice: Lattice, index: LatticeIndex, edit: PaintPlateEdit, plateOf: Int32Array): void {
@@ -107,7 +136,13 @@ function addPlate(lattice: Lattice, edit: AddPlateEdit, plateOf: Int32Array, pla
       seed = v;
     }
   }
-  plates.push({ id, seedVertex: seed, axis: [edit.axis[0], edit.axis[1], edit.axis[2]], angularSpeed: edit.angularSpeed });
+  // The drift the arrow gave, plus any spin about the new plate's own centre.
+  const spin = edit.spin ?? 0;
+  const wx = edit.axis[0] * edit.angularSpeed + edit.center[0] * spin;
+  const wy = edit.axis[1] * edit.angularSpeed + edit.center[1] * spin;
+  const wz = edit.axis[2] * edit.angularSpeed + edit.center[2] * spin;
+  const total = Math.sqrt(wx * wx + wy * wy + wz * wz);
+  plates.push({ id, seedVertex: seed, axis: spin === 0 || total === 0 ? [edit.axis[0], edit.axis[1], edit.axis[2]] : [wx / total, wy / total, wz / total], angularSpeed: spin === 0 || total === 0 ? edit.angularSpeed : total });
 }
 
 /**

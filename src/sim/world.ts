@@ -45,6 +45,8 @@ export interface AddPlateEdit {
   /** Rotation axis (unit vector) and speed in radians per million years. */
   readonly axis: readonly [number, number, number];
   readonly angularSpeed: number;
+  /** How fast the plate also turns about its own centre, in radians per million years (positive is counter-clockwise from above). Missing means none. */
+  readonly spin?: number;
   readonly time: number;
 }
 
@@ -64,6 +66,18 @@ export interface RemovePlateEdit {
 export interface SplitPlateEdit {
   readonly kind: 'splitPlate';
   readonly at: readonly [number, number, number];
+  readonly time: number;
+}
+
+/**
+ * Set how the plate under a point moves at the start: how fast its centre drifts (radians per million years, along the way it
+ * was already heading) and how fast it spins about its own centre (positive is counter-clockwise from above).
+ */
+export interface PlateMotionEdit {
+  readonly kind: 'plateMotion';
+  readonly at: readonly [number, number, number];
+  readonly speed: number;
+  readonly spin: number;
   readonly time: number;
 }
 
@@ -90,7 +104,7 @@ export interface PaintPlateEdit {
   readonly time: number;
 }
 
-export type PlateEdit = AddPlateEdit | RemovePlateEdit | SplitPlateEdit | DragPlateEdit | PaintPlateEdit;
+export type PlateEdit = AddPlateEdit | RemovePlateEdit | SplitPlateEdit | PlateMotionEdit | DragPlateEdit | PaintPlateEdit;
 /** Generated land: continents shaped by fractal coastlines, added to whatever is already there. */
 export interface GenerateEdit {
   readonly kind: 'generate';
@@ -115,7 +129,7 @@ export interface ErodeEdit {
 export type Edit = BrushEdit | GenerateEdit | PlateEdit | ErodeEdit;
 
 export const isPlateEdit = (e: Edit): e is PlateEdit =>
-  e.kind === 'addPlate' || e.kind === 'removePlate' || e.kind === 'splitPlate' || e.kind === 'dragPlate' || e.kind === 'paintPlate';
+  e.kind === 'addPlate' || e.kind === 'removePlate' || e.kind === 'splitPlate' || e.kind === 'plateMotion' || e.kind === 'dragPlate' || e.kind === 'paintPlate';
 
 export interface Recipe {
   readonly seed: string;

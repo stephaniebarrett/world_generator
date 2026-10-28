@@ -63,6 +63,8 @@ describe('world file', () => {
       { kind: 'paintPlate', from: [1, 0, 0], radius: 0.1, dabs: [1, 0, 0, 0, 1, 0], time: 0 },
       { kind: 'splitPlate', at: [0, 1, 0], time: 0 },
       { kind: 'erode', my: 10, time: 30 },
+      { kind: 'plateMotion', at: [0, 0, 1], speed: 0.01, spin: -0.002, time: 0 },
+      { kind: 'addPlate', center: [0, 1, 0], radius: 0.3, axis: [0, 0, 1], angularSpeed: 0.006, spin: -0.01, time: 0 },
     ] as const;
     const file = toWorldFile({ ...recipe, edits: [...edits] }, DEFAULT_PLANET);
     expect(parseWorld(serializeWorld(file))).toEqual(file);
@@ -71,6 +73,7 @@ describe('world file', () => {
     expect(() => parseWorld(bad({ ...edits[0], center: [1, 0] }))).toThrow(/center must be three numbers/);
     expect(() => parseWorld(bad({ ...edits[0], axis: [5, 5, 5] }))).toThrow(/axis must be a unit vector/);
     expect(() => parseWorld(bad({ ...edits[0], angularSpeed: 3 }))).toThrow(/angularSpeed/);
+    expect(() => parseWorld(bad({ ...edits[0], spin: 5 }))).toThrow(/spin out of range/);
     expect(() => parseWorld(bad({ ...edits[1], mode: 'delete' }))).toThrow(/unknown mode/);
     expect(() => parseWorld(bad({ ...edits[2], to: 'x' }))).toThrow(/to must be three numbers/);
     expect(() => parseWorld(bad({ ...edits[3], dabs: [1, 2] }))).toThrow(/dabs must be/);

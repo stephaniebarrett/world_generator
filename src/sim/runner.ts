@@ -32,6 +32,8 @@ export interface Frame {
   readonly time: number;
   readonly thickness: Float32Array;
   readonly plate: Int32Array;
+  /** Each plate's angular velocity at this moment (xyz per plate, radians per million years): how it is drifting and turning. */
+  readonly omega: Float32Array;
   /** Annual mean temperature (C) and precipitation (mm/yr). */
   readonly temperature: Float32Array;
   readonly precipitation: Float32Array;
@@ -110,11 +112,12 @@ export async function runSimulation(params: RunParams, onFrame: (frame: Frame) =
     const time = tectonics.time;
     const thickness = Float32Array.from(r.thickness);
     const plate = r.plate, rockNow = r.rock;
+    const omega = Float32Array.from(tectonics.omega);
     // Frames go out in order: the previous one is delivered (and its rainfall taken up) before this one's climate starts.
     if (pending) tectonics.rainfall = await pending;
     const mine = host.climate(Float32Array.from(thickness), Uint8Array.from(rockNow)).then((c) => {
       const rain = Float32Array.from(c.precipitation); // a copy: the frame's own array is handed to the main thread
-      onFrame({ time, thickness, plate, rock: rockNow, ...c });
+      onFrame({ time, thickness, plate, omega, rock: rockNow, ...c });
       return rain;
     });
     pending = mine;

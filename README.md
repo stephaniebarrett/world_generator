@@ -53,7 +53,7 @@ The `scripts/` folder holds helpers that drive the app in headless Chrome and sa
 3. Use the tool bar:
    - **Orbit** turns and zooms the globe.
    - **Paint Ocean** and **Paint Land** paint crust. **Raise Terrain** and **Lower Terrain** thicken or thin it. Brush **Size** and **Strength** are in the **Brush** section.
-   - **Add Plate:** press a spot and drag out an arrow for the new plate's direction and speed.
+   - **Add Plate:** press a spot and drag out an arrow for the new plate's direction and speed. **Plate Spin** (in the **Brush** section) sets how fast it also turns about its own centre.
    - **Remove Plate:** click a plate. The **Brush** section sets whether its ground is reset to sea floor or kept.
    - **Drag Plate:** press on a plate and drag it somewhere else. Neighbours give way.
    - **Paint Plate:** press on a plate and drag to push its boundary into a neighbour.

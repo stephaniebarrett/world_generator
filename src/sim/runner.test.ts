@@ -18,6 +18,15 @@ describe('runSimulation', () => {
     expect((await collect()).map((f) => f.time)).toEqual([0, 10, 20, 30]);
   });
 
+  it('records how the plates are moving in every frame', async () => {
+    const frames = await collect();
+    for (const f of frames) {
+      expect(f.omega.length % 3).toBe(0);
+      expect(f.omega.length / 3).toBeGreaterThanOrEqual(Math.max(...f.plate) + 1);
+      expect(f.omega.some((x) => x !== 0)).toBe(true);
+    }
+  });
+
   it('is deterministic', async () => {
     const a = await collect();
     const b = await collect();

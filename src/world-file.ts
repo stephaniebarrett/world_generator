@@ -58,7 +58,9 @@ function parseEdit(raw: unknown, index: number): Edit {
   if (e.kind === 'addPlate') {
     if (!isFinite_(e.radius) || e.radius <= 0 || e.radius > 2) return fail('radius out of range');
     if (!isFinite_(e.angularSpeed) || e.angularSpeed <= 0 || e.angularSpeed > 0.1) return fail('angularSpeed out of range');
-    return { kind: 'addPlate', center: parseUnit(e.center, 'center', fail), radius: e.radius, axis: parseUnit(e.axis, 'axis', fail), angularSpeed: e.angularSpeed, time: e.time };
+    if (e.spin !== undefined && (!isFinite_(e.spin) || Math.abs(e.spin) > 0.1)) return fail('spin out of range');
+    const spin = e.spin as number | undefined;
+    return { kind: 'addPlate', center: parseUnit(e.center, 'center', fail), radius: e.radius, axis: parseUnit(e.axis, 'axis', fail), angularSpeed: e.angularSpeed, ...(spin !== undefined && spin !== 0 ? { spin } : {}), time: e.time };
   }
   if (e.kind === 'removePlate') {
     if (e.mode !== 'reset' && e.mode !== 'keep') return fail(`unknown mode ${String(e.mode)}`);
@@ -68,6 +70,11 @@ function parseEdit(raw: unknown, index: number): Edit {
     if (!isFinite_(e.my) || e.my <= 0 || e.my > 200) return fail('my out of range');
     if (e.time < 0) return fail('time out of range');
     return { kind: 'erode', my: e.my, time: e.time };
+  }
+  if (e.kind === 'plateMotion') {
+    if (!isFinite_(e.speed) || e.speed < 0 || e.speed > 0.1) return fail('speed out of range');
+    if (!isFinite_(e.spin) || Math.abs(e.spin) > 0.1) return fail('spin out of range');
+    return { kind: 'plateMotion', at: parseUnit(e.at, 'at', fail), speed: e.speed, spin: e.spin, time: e.time };
   }
   if (e.kind === 'splitPlate') return { kind: 'splitPlate', at: parseUnit(e.at, 'at', fail), time: e.time };
   if (e.kind === 'generate') {

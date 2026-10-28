@@ -65,6 +65,14 @@ const SLAB_BREAKOFF = 0.9;
 /** Net thickness gained in one step (km) above which erosion's deposit counts as fresh sediment. */
 const DEPOSIT_THRESHOLD = 0.03;
 const PLATE_DRIVE = 0.12;
+/**
+ * Neighbouring plates drag on each other: along any shared border, their motions (the drift and the spin both) pull toward each
+ * other at this rate per My at full grip, and the motion each plate is driven toward moves at half that rate, so the change lasts.
+ * Gentle: over a 200 My run a plate is moved a good way toward its neighbours, not made to match them.
+ */
+const NEIGHBOUR_DRAG = 0.003;
+/** Border contacts (crust points within reach of the other plate per step) at which half the grip is reached. */
+const DRAG_HALF_CONTACTS = 12;
 /** A lattice vertex counts as a hole when no crust point is closer than this. */
 const HOLE = 0.7;
 /** Neighbour search cell, in multiples of spacing (must be >= REACH and >= the spawn search radius). */
@@ -402,6 +410,7 @@ export function stepTectonics(t: TectonicState, dt: number): void {
     if (densityOf(thickness[i]!, age[i]!) >= BUOYANT_DENSITY) seaN[plate[i]!] = seaN[plate[i]!]! + 1;
   }
   const contacts = new Int32Array(plateCount * plateCount); // continent-continent contacts per plate pair
+  const touches = new Int32Array(plateCount * plateCount); // contacts of any kind per plate pair
   const plateDensity = new Float64Array(plateCount);
   for (let p = 0; p < plateCount; p++) plateDensity[p] = densN[p] ? densSum[p]! / densN[p]! : 0;
   const reach = REACH * spacing;
@@ -481,6 +490,10 @@ export function stepTectonics(t: TectonicState, dt: number): void {
         dead[i] = 1;
         // What happens to the crust that goes is settled below, once the whole border is known.
         if (deadKind[i] === 0) { deadKind[i] = bothBuoyant ? 1 : 2; deadTo[i] = pj; }
+      }
+      {
+        const lo = Math.min(pi, pj), hi = Math.max(pi, pj);
+        touches[lo * plateCount + hi] = touches[lo * plateCount + hi]! + 1;
       }
       if (bothBuoyant && closing > 0 && dist < reach) {
         const lo = Math.min(pi, pj), hi = Math.max(pi, pj);
@@ -578,6 +591,27 @@ export function stepTectonics(t: TectonicState, dt: number): void {
         const wa = omega[a * 3 + k]!, wb = omega[b * 3 + k]!;
         omega[a * 3 + k] = wa + strength * (mb / (ma + mb)) * (wb - wa);
         omega[b * 3 + k] = wb + strength * (ma / (ma + mb)) * (wa - wb);
+      }
+    }
+  }
+
+  // Neighbours drag on each other, whatever they are made of: motion spreads along borders, and the change lasts because the
+  // motion each plate is driven toward spreads too. Weighted by size, so a small plate follows a big one more than the reverse.
+  for (let a = 0; a < plateCount; a++) {
+    for (let b = a + 1; b < plateCount; b++) {
+      const contact = touches[a * plateCount + b]!;
+      if (contact === 0) continue;
+      const ma = densN[a]!, mb = densN[b]!;
+      if (ma + mb === 0) continue;
+      const grip = contact / (contact + DRAG_HALF_CONTACTS);
+      const strength = grip * NEIGHBOUR_DRAG * dt;
+      for (let k = 0; k < 3; k++) {
+        const wa = omega[a * 3 + k]!, wb = omega[b * 3 + k]!;
+        omega[a * 3 + k] = wa + strength * (mb / (ma + mb)) * (wb - wa);
+        omega[b * 3 + k] = wb + strength * (ma / (ma + mb)) * (wa - wb);
+        const da = omegaDrive[a * 3 + k]!, db = omegaDrive[b * 3 + k]!;
+        omegaDrive[a * 3 + k] = da + 0.5 * strength * (mb / (ma + mb)) * (db - da);
+        omegaDrive[b * 3 + k] = db + 0.5 * strength * (ma / (ma + mb)) * (da - db);
       }
     }
   }

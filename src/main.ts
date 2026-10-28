@@ -6,6 +6,8 @@ import { buildCellBorders, buildCellMesh, type CellBorders, type CellMesh } from
 import { buildCellGeometry, surfaceRadius, updateCellColors, updateCellHeights } from './view/cellGeometry';
 import { colorsFromRock, colorsFromBiomes, colorsFromPlates, colorsFromRainfall, colorsFromTemperature, colorsFromThickness } from './view/colors';
 import { prepareWorld, type PreparedWorld } from './sim/setup';
+import { plateCentroid } from './sim/plateEdits';
+import { driftAndSpin } from './sim/motion';
 import { ROCKS } from './sim/crust';
 import { DEFAULT_EROSION, erodeThickness } from './sim/erosion';
 import { fillLoneWater } from './sim/pits';
@@ -18,6 +20,7 @@ import { renderProjection } from './export/render';
 import { LatticeIndex } from './sim/latticeIndex';
 import type { CirculationLevel } from './sim/circulation';
 import { flowArrowLines } from './view/flowArrows';
+import { arrowSegments, plateMotionLines } from './view/plateArrows';
 import { riverPaths } from './view/riverPaths';
 import { elevationFromThickness } from './sim/world';
 import { setupSidePanel } from './view/sidePanel';
@@ -39,6 +42,8 @@ const windToggle = $<HTMLInputElement>('winds');
 const removeModeSelect = $<HTMLSelectElement>('removeMode');
 const hint = $<HTMLDivElement>('hint');
 const strengthInput = $<HTMLInputElement>('strength');
+const plateSpinInput = $<HTMLInputElement>('plateSpin');
+const plateSpeedInput = $<HTMLInputElement>('plateSpeed');
 const strengthReadout = $<HTMLSpanElement>('strengthReadout');
 const landStyleSelect = $<HTMLSelectElement>('landStyle');
 const landCoverInput = $<HTMLInputElement>('landCover');
@@ -342,7 +347,28 @@ plateOutlinesToggle.addEventListener('change', updatePlateOutlines);
 let doomedLines: THREE.LineSegments | null = null;
 let doomedPlate = -1;
 
-/** Outlines one plate (red for Remove Plate, yellow for Split Plate) to show what a click would act on; -1 clears it. */
+/** The outline of one plate as lines on the globe, or null if it has none to draw. */
+function plateOutline(id: number, color: number, lift: number): THREE.LineSegments | null {
+  const plateOf = prepared?.setup.plateOf;
+  if (id < 0 || !plateOf || !cornerRadius) return null;
+  const pos: number[] = [];
+  const plateAt = (cell: number) => plateOf[viewMap ? viewMap[cell]! : cell]!;
+  for (let e = 0; e < borders.count; e++) {
+    const a = plateAt(borders.a[e]!) === id;
+    if (a === (plateAt(borders.b[e]!) === id)) continue;
+    for (const c of [borders.cornerA[e]!, borders.cornerB[e]!]) {
+      const r = cornerRadius[c]! + lift;
+      pos.push(cells.corners[c * 3]! * r, cells.corners[c * 3 + 1]! * r, cells.corners[c * 3 + 2]! * r);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  const lines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color }));
+  scene.add(lines);
+  return lines;
+}
+
+/** Outlines one plate (red for Remove Plate, yellow for Split Plate and Edit Plate) to show what a click would act on; -1 clears it. */
 function highlightPlate(id: number): void {
   if (id === doomedPlate) return;
   doomedPlate = id;
@@ -351,22 +377,25 @@ function highlightPlate(id: number): void {
     scene.remove(doomedLines);
     doomedLines = null;
   }
-  const plateOf = prepared?.setup.plateOf;
-  if (id < 0 || !plateOf || !cornerRadius) return;
-  const pos: number[] = [];
-  const plateAt = (cell: number) => plateOf[viewMap ? viewMap[cell]! : cell]!;
-  for (let e = 0; e < borders.count; e++) {
-    const a = plateAt(borders.a[e]!) === id;
-    if (a === (plateAt(borders.b[e]!) === id)) continue;
-    for (const c of [borders.cornerA[e]!, borders.cornerB[e]!]) {
-      const r = cornerRadius[c]! + 0.004;
-      pos.push(cells.corners[c * 3]! * r, cells.corners[c * 3 + 1]! * r, cells.corners[c * 3 + 2]! * r);
-    }
+  doomedLines = plateOutline(id, tool === 'removePlate' ? 0xff2a2a : 0xffd02a, 0.004);
+}
+
+/** The plate chosen with Edit Plate, kept outlined (in blue) until another tool is picked. A point on it, since plate numbers can change. */
+let selectedAt: [number, number, number] | null = null;
+let selectionLines: THREE.LineSegments | null = null;
+
+function selectedPlateId(): number {
+  if (!selectedAt || !latticeIndex || !prepared) return -1;
+  return prepared.setup.plateOf[latticeIndex.nearest(selectedAt[0], selectedAt[1], selectedAt[2])]!;
+}
+
+function drawSelection(): void {
+  if (selectionLines) {
+    selectionLines.geometry.dispose();
+    scene.remove(selectionLines);
+    selectionLines = null;
   }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  doomedLines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: tool === 'splitPlate' ? 0xffd02a : 0xff2a2a }));
-  scene.add(doomedLines);
+  if (tool === 'editPlate') selectionLines = plateOutline(selectedPlateId(), 0x4cc9ff, 0.0055);
 }
 
 let riverLines: THREE.LineSegments | null = null;
@@ -844,6 +873,7 @@ function recolor(withRivers = true): void {
     updatePlateOutlines();
   }
   updatePlateArrows();
+  drawSelection();
 }
 
 /** Painting changes the land; plate edits change the plates made from it. Either makes what is derived from them stale. */
@@ -892,7 +922,8 @@ const HINTS: Record<string, string> = {
   ocean: 'Drag to paint ocean.',
   raise: 'Drag to thicken the crust and raise mountains.',
   lower: 'Drag to thin the crust and deepen basins.',
-  addPlate: 'Press on a spot and drag: the arrow is the new plate’s direction and speed, brush size its size.',
+  editPlate: 'Click a plate to select it, then set its Plate Speed and Plate Spin in the Brush section. This sets how the plate starts out, so it clears a finished simulation.',
+  addPlate: 'Press on a spot and drag: the arrow is the new plate’s direction and speed, brush size its size, and Plate Spin how fast it turns.',
   splitPlate: 'Click a plate to split it roughly in half along a wandering edge. The new half drifts away from the old one. Undo if you do not like where the edge fell.',
   removePlate: 'Click a plate to remove it. The Brush section sets what happens to its ground.',
   dragPlate: 'Press on a plate and drag it somewhere else. Plates always cover the globe, so neighbours give way.',
@@ -907,7 +938,10 @@ for (const b of toolButtons) {
     for (const o of toolButtons) o.classList.toggle('active', o === b);
     hint.textContent = HINTS[tool] ?? '';
     highlightPlate(-1);
-    if (BRUSH_TOOLS.has(tool) || tool === 'removePlate') openSection('Brush'); // the tools that use its settings
+    if (tool !== 'editPlate') selectedAt = null;
+    drawSelection();
+    updateEditControls();
+    if (BRUSH_TOOLS.has(tool) || tool === 'removePlate' || tool === 'editPlate') openSection('Brush'); // the tools that use its settings
     if (isPlateTool() && layerSelect.value !== 'plates') {
       layerSelect.value = 'plates'; // plate tools make no sense without seeing the plates
       layerSelect.dispatchEvent(new Event('change'));
@@ -916,7 +950,7 @@ for (const b of toolButtons) {
 }
 
 function isPlateTool(): boolean {
-  return tool === 'addPlate' || tool === 'removePlate' || tool === 'splitPlate' || tool === 'dragPlate' || tool === 'paintPlate';
+  return tool === 'addPlate' || tool === 'removePlate' || tool === 'splitPlate' || tool === 'dragPlate' || tool === 'paintPlate' || tool === 'editPlate';
 }
 
 function toolMode(): BrushEdit['mode'] | null {
@@ -968,21 +1002,6 @@ function commitPlateEdit(edit: PlateEdit): void {
   scheduleSave();
 }
 
-/** Line segments for an arrow lying on the globe from `a` to `b`, with a small head. */
-function arrowSegments(a: THREE.Vector3, b: THREE.Vector3, lift: number): number[] {
-  const dir = b.clone().sub(a);
-  const length = dir.length();
-  if (length < 1e-6) return [];
-  dir.divideScalar(length);
-  const side = a.clone().cross(dir).normalize();
-  const head = Math.min(0.06, length * 0.35);
-  const left = b.clone().addScaledVector(dir, -head).addScaledVector(side, head * 0.5);
-  const right = b.clone().addScaledVector(dir, -head).addScaledVector(side, -head * 0.5);
-  const out: number[] = [];
-  for (const [p, q] of [[a, b], [b, left], [b, right]] as const) out.push(...p.clone().multiplyScalar(lift).toArray(), ...q.clone().multiplyScalar(lift).toArray());
-  return out;
-}
-
 let previewLine: THREE.LineSegments | null = null;
 function showPreview(from: THREE.Vector3, to: THREE.Vector3): void {
   hidePreview();
@@ -1000,39 +1019,29 @@ function hidePreview(): void {
 
 let plateArrows: THREE.LineSegments | null = null;
 
-/** An arrow per plate, showing which way it is heading, on the Plates layer before a simulation has run. */
+/** How each plate is moving, on the Plates layer: the starting plates' motion before a run, and the frame on show during and after one. */
 function updatePlateArrows(): void {
   if (plateArrows) {
     plateArrows.geometry.dispose();
     scene.remove(plateArrows);
     plateArrows = null;
   }
-  if (layerSelect.value !== 'plates' || frames[frameIndex] || !prepared) return;
-  const { setup } = prepared;
-  const sums = new Float64Array(setup.plates.length * 3);
-  const counts = new Int32Array(setup.plates.length);
-  for (let v = 0; v < lattice.vertexCount; v++) {
-    const id = setup.plateOf[v]!;
-    sums[id * 3] = sums[id * 3]! + lattice.positions[v * 3]!;
-    sums[id * 3 + 1] = sums[id * 3 + 1]! + lattice.positions[v * 3 + 1]!;
-    sums[id * 3 + 2] = sums[id * 3 + 2]! + lattice.positions[v * 3 + 2]!;
-    counts[id] = counts[id]! + 1;
-  }
-  const pos: number[] = [];
-  for (const plate of setup.plates) {
-    if (!counts[plate.id]) continue;
-    const c = new THREE.Vector3(sums[plate.id * 3], sums[plate.id * 3 + 1], sums[plate.id * 3 + 2]);
-    if (c.lengthSq() < 1e-9) continue;
-    c.normalize();
-    const velocity = new THREE.Vector3(...plate.axis).multiplyScalar(plate.angularSpeed).cross(c);
-    const speed = velocity.length();
-    if (speed === 0) continue;
-    const end = c.clone().addScaledVector(velocity.divideScalar(speed), 0.05 + speed * 10).normalize();
-    pos.push(...arrowSegments(c, end, 1.035));
-  }
+  if (layerSelect.value !== 'plates') return;
+  const frame = frames[frameIndex];
+  let lines: { positions: number[]; colors: number[] };
+  if (frame) {
+    lines = plateMotionLines(lattice.positions, frame.plate, frame.omega.length / 3, (id) => [frame.omega[id * 3]!, frame.omega[id * 3 + 1]!, frame.omega[id * 3 + 2]!]);
+  } else if (prepared) {
+    const { plateOf, plates } = prepared.setup;
+    lines = plateMotionLines(lattice.positions, plateOf, plates.length, (id) => {
+      const p = plates[id]!;
+      return [p.axis[0] * p.angularSpeed, p.axis[1] * p.angularSpeed, p.axis[2] * p.angularSpeed];
+    });
+  } else return;
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  plateArrows = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: 0x111111 }));
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(lines.positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(lines.colors, 3));
+  plateArrows = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ vertexColors: true }));
   scene.add(plateArrows);
 }
 
@@ -1042,6 +1051,13 @@ canvas.addEventListener('pointerdown', (e) => {
   if (!mode && !isPlateTool()) return;
   const p = pick(e);
   if (!p) return;
+  if (tool === 'editPlate') {
+    // Choosing a plate changes nothing yet: its motion is set from the sliders in the Brush section.
+    selectedAt = tuple(p);
+    drawSelection();
+    updateEditControls();
+    return;
+  }
   clearSimulation(); // edits make simulated results stale
   controls.enabled = false;
   canvas.setPointerCapture(e.pointerId);
@@ -1105,7 +1121,7 @@ function endPointer(): void {
         dir.addScaledVector(from, -dir.dot(from)).normalize();
         const axis = from.clone().cross(dir).normalize();
         const speed = Math.min(0.016, 0.002 + from.distanceTo(to) * 0.03);
-        commitPlateEdit({ kind: 'addPlate', center: tuple(from), radius: Number(radiusInput.value), axis: tuple(axis), angularSpeed: speed, time: 0 });
+        commitPlateEdit({ kind: 'addPlate', center: tuple(from), radius: Number(radiusInput.value), axis: tuple(axis), angularSpeed: speed, ...(plateSpin() !== 0 ? { spin: plateSpin() } : {}), time: 0 });
       }
     }
   }
@@ -1189,12 +1205,56 @@ function updateStrengthReadout(): void {
 /** Like a tool options bar: each tool shows only the brush settings it uses. */
 const SIZE_TOOLS = new Set(['land', 'ocean', 'raise', 'lower', 'addPlate', 'paintPlate']);
 const STRENGTH_TOOLS = new Set(['land', 'ocean', 'raise', 'lower']);
+/** The spin chosen for a new plate, in radians per million years (the slider is in degrees). */
+const plateSpin = (): number => (Number(plateSpinInput.value) * Math.PI) / 180;
+
+function updateSpinReadout(): void {
+  const deg = Number(plateSpinInput.value);
+  document.getElementById('spinReadout')!.textContent = deg === 0 ? 'None' : `${deg > 0 ? '+' : ''}${deg.toFixed(1)}°/My ${deg > 0 ? 'anticlockwise' : 'clockwise'}`;
+}
+plateSpinInput.addEventListener('input', updateSpinReadout);
+
+/** Plate speed is shown in cm a year: one radian per million years is about 637 cm a year at the planet's surface. */
+const CM_PER_YEAR_PER_RAD_PER_MY = 637.1;
+function updateSpeedReadout(): void {
+  document.getElementById('speedReadout')!.textContent = `${Number(plateSpeedInput.value).toFixed(1)} cm/yr`;
+}
+plateSpeedInput.addEventListener('input', updateSpeedReadout);
+
+/** Show the chosen plate's motion on the sliders, and the sliders only while there is a plate to change. */
+function updateEditControls(): void {
+  const id = selectedPlateId();
+  if (tool === 'editPlate' && id >= 0 && prepared) {
+    const plate = prepared.setup.plates[id]!;
+    const { drift, spin } = driftAndSpin(plateCentroid(lattice, prepared.setup.plateOf, id), [plate.axis[0] * plate.angularSpeed, plate.axis[1] * plate.angularSpeed, plate.axis[2] * plate.angularSpeed]);
+    plateSpeedInput.value = String(Math.min(15, Math.round(drift * CM_PER_YEAR_PER_RAD_PER_MY * 2) / 2));
+    plateSpinInput.value = String(Math.max(-1.5, Math.min(1.5, Math.round(((spin * 180) / Math.PI) * 10) / 10)));
+  }
+  showBrushSettings();
+}
+
+/** Letting go of a slider sets the chosen plate's starting motion: an edit like any other, so Undo takes it back. */
+function commitPlateMotion(): void {
+  if (tool !== 'editPlate' || !selectedAt) return;
+  clearSimulation();
+  commitPlateEdit({ kind: 'plateMotion', at: selectedAt, speed: Number(plateSpeedInput.value) / CM_PER_YEAR_PER_RAD_PER_MY, spin: plateSpin(), time: 0 });
+  updateEditControls();
+}
+plateSpeedInput.addEventListener('change', commitPlateMotion);
+plateSpinInput.addEventListener('change', commitPlateMotion);
+
 function showBrushSettings(): void {
   const row = (input: HTMLElement) => input.closest('label')!;
   row(radiusInput).hidden = !SIZE_TOOLS.has(tool);
   row(strengthInput).hidden = !STRENGTH_TOOLS.has(tool);
   row(removeModeSelect).hidden = tool !== 'removePlate';
-  $<HTMLDivElement>('brushNone').hidden = SIZE_TOOLS.has(tool) || tool === 'removePlate';
+  row(plateSpinInput).hidden = !(tool === 'addPlate' || (tool === 'editPlate' && selectedAt !== null));
+  row(plateSpeedInput).hidden = !(tool === 'editPlate' && selectedAt !== null);
+  const none = $<HTMLDivElement>('brushNone');
+  none.hidden = SIZE_TOOLS.has(tool) || tool === 'removePlate' || (tool === 'editPlate' && selectedAt !== null);
+  none.textContent = tool === 'editPlate' ? 'Click a plate to change how it moves.' : 'This tool has no brush settings.';
+  updateSpinReadout();
+  updateSpeedReadout();
 }
 for (const b of toolButtons) b.addEventListener('click', showBrushSettings);
 showBrushSettings();
@@ -1469,7 +1529,7 @@ canvas.addEventListener('pointermove', (e) => {
       return;
     }
     const v = latticeIndex.nearest(p.x, p.y, p.z);
-    highlightPlate((tool === 'removePlate' || tool === 'splitPlate') && prepared ? prepared.setup.plateOf[v]! : -1);
+    highlightPlate((tool === 'removePlate' || tool === 'splitPlate' || tool === 'editPlate') && prepared ? prepared.setup.plateOf[v]! : -1);
     const frame = frames[frameIndex];
     const thickness = frame ? frame.thickness[v]! : viewThickness()[v]!;
     const elevation = Math.round(elevationFromThickness(thickness) - seaLevel());

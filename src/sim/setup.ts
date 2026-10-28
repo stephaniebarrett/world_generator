@@ -35,6 +35,7 @@ export function prepareWorld(recipe: Recipe, lattice: Lattice): PreparedWorld {
   fillLoneWater(lattice, world.thickness);
   const plateOf = Int32Array.from(editor.plateOf);
   keepLandmassesWhole(world, plateOf);
+  fillLoneWater(lattice, world.thickness); // keeping landmasses whole can leave a lone sea cell behind
   const plates = [...editor.plates];
   let rock = assignGeology(lattice, world.thickness, plateOf, plates, recipe.seed);
   // Hand-applied erosion before the run wears the finished relief; fresh relief wears faster than the long-run rate (as in terrain.ts).
