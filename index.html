@@ -154,7 +154,7 @@
       <section>
         <h2>World</h2>
         <label>Seed <input id="seed" value="first-world" /></label>
-        <label>Simulation detail <span class="hintline">sets how finely the world is simulated<span class="more">; higher levels are slower</span></span>
+        <label>Simulation Detail <span class="hintline">Sets how finely the world is simulated<span class="more">; higher levels are slower</span></span>
           <select id="detail">
             <option value="draft">Low (~10k points)</option>
             <option value="default" selected>Medium (~40k points)</option>
@@ -163,7 +163,7 @@
             <option value="ultra">Ultra (~580k points)</option>
           </select>
         </label>
-        <label>Render detail <span class="hintline">sets how finely it is drawn</span>
+        <label>Render Detail <span class="hintline">Sets how finely it is drawn</span>
           <select id="renderDetail">
             <option value="match" selected>Match simulation</option>
             <option value="draft">Low (~10k cells)</option>
@@ -173,7 +173,7 @@
             <option value="ultra">Ultra (~580k cells, heavy)</option>
           </select>
         </label>
-        <label>Keyframe spacing <span class="hintline">how often a run is saved to the timeline<span class="more">; wider spacing runs faster</span></span>
+        <label>Keyframe Spacing <span class="hintline">How often a run is saved to the timeline<span class="more">; wider spacing runs faster</span></span>
           <select id="keyframe">
             <option value="5">Every 5 My</option>
             <option value="10" selected>Every 10 My</option>
@@ -185,7 +185,7 @@
       </section>
       <section>
         <h2>Land</h2>
-        <label>Land style
+        <label>Land Style
           <select id="landStyle">
             <option value="continents" selected>Continents</option>
             <option value="pangaea">Pangaea</option>
@@ -193,14 +193,14 @@
             <option value="archipelago">Archipelago</option>
           </select>
         </label>
-        <label>Land cover <span id="coverReadout">30%</span>
+        <label>Land Cover <span id="coverReadout">30%</span>
           <input id="landCover" type="range" min="5" max="60" step="1" value="30" />
         </label>
         <button id="generate" class="primary">Generate Land</button>
       </section>
       <section>
         <h2>Planet</h2>
-        <label>Axial tilt <span id="tiltReadout">23°</span>
+        <label>Axial Tilt <span id="tiltReadout">23°</span>
           <input id="tilt" type="range" min="0" max="45" step="1" value="23" />
         </label>
         <label>Spin
@@ -209,7 +209,7 @@
             <option value="-1">Reversed</option>
           </select>
         </label>
-        <label>Sea level <span id="seaReadout">0 m</span>
+        <label>Sea Level <span id="seaReadout">0 m</span>
           <input id="seaLevel" type="range" min="-1000" max="2000" step="50" value="0" />
         </label>
         <button id="recompute">Recompute Climate</button>
@@ -219,7 +219,7 @@
         <label>Size <span id="sizeReadout"></span> <input id="radius" type="range" min="0.03" max="0.6" step="0.01" value="0.2" /></label>
         <label>Strength <span id="strengthReadout"></span> <input id="strength" type="range" min="0.05" max="1" step="0.05" value="0.4" /></label>
         <div id="brushNone" class="hintline" hidden>This tool has no brush settings.</div>
-        <label>When removing a plate
+        <label>When Removing a Plate
           <select id="removeMode">
             <option value="reset" selected>Reset its ground to seafloor</option>
             <option value="keep">Keep its crust</option>
@@ -239,32 +239,32 @@
           </select>
         </label>
         <div id="legend"></div>
-        <label>Height exaggeration <span id="exagReadout">40×</span>
+        <label>Height Exaggeration <span id="exagReadout">40×</span>
           <input id="exaggeration" type="range" min="1" max="100" step="1" value="40" />
         </label>
-        <label class="check"><input id="edges" type="checkbox" /> Show cell edges</label>
-        <label class="check"><input id="plateOutlines" type="checkbox" /> Plate outlines</label>
-        <label class="check"><input id="winds" type="checkbox" /> Prevailing winds</label>
-        <label class="check"><input id="water" type="checkbox" checked /> Rivers and lakes</label>
-        <label>Rivers shown <span id="riverReadout"></span> <input id="riverDensity" type="range" min="0.5" max="20" step="0.5" value="4" /></label>
-        <label class="check"><input id="guideAxis" type="checkbox" /> Rotation axis</label>
+        <label class="check"><input id="edges" type="checkbox" /> Show Cell Edges</label>
+        <label class="check"><input id="plateOutlines" type="checkbox" /> Plate Outlines</label>
+        <label class="check"><input id="winds" type="checkbox" /> Prevailing Winds</label>
+        <label class="check"><input id="water" type="checkbox" checked /> Rivers and Lakes</label>
+        <label>Rivers Shown <span id="riverReadout"></span> <input id="riverDensity" type="range" min="0.5" max="20" step="0.5" value="4" /></label>
+        <label class="check"><input id="guideAxis" type="checkbox" /> Rotation Axis</label>
         <label class="check"><input id="guideEquator" type="checkbox" /> Equator</label>
         <label class="check"><input id="guideTropics" type="checkbox" /> Tropics</label>
-        <label class="check"><input id="guidePolar" type="checkbox" /> Polar circles</label>
+        <label class="check"><input id="guidePolar" type="checkbox" /> Polar Circles</label>
       </section>
       <section>
         <h2>Save and export</h2>
-        <label>Map projection
+        <label>Map Projection
           <select id="projection"></select>
         </label>
-        <label>Map centre <span id="centreReadout">0°N 0°E</span>
+        <label>Map Centre <span id="centreReadout">0°N 0°E</span>
           <span class="pair">
             <input id="centreLat" type="number" min="-90" max="90" step="5" value="0" title="Latitude (globe view)" />
             <input id="centreLon" type="number" min="-180" max="180" step="5" value="0" title="Longitude" />
           </span>
         </label>
         <button id="centreFromView">Centre on Current View</button>
-        <label>Image width
+        <label>Image Width
           <select id="mapWidth">
             <option value="1024">1024 px</option>
             <option value="2048" selected>2048 px</option>

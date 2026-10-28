@@ -48,8 +48,8 @@ The `scripts/` folder holds helpers that drive the app in headless Chrome and sa
 
 ### Making a world
 
-1. In the **World** section, type a **Seed** and pick a **Simulation detail**. Start with Medium (about 40,000 points) or Low (about 10,000, fast). Very high and Ultra are slow and heavy.
-2. Click **New World** for an empty ocean, or choose a **Land style** and **Land cover** and click **Generate Land**. You can also paint by hand with the tools below. Painting responsiveness depends on your detail settings.
+1. In the **World** section, type a **Seed** and pick a **Simulation Detail**. Start with Medium (about 40,000 points) or Low (about 10,000, fast). Very high and Ultra are slow and heavy.
+2. Click **New World** for an empty ocean, or choose a **Land Style** and **Land Cover** and click **Generate Land**. You can also paint by hand with the tools below. Painting responsiveness depends on your detail settings.
 3. Use the tool bar:
    - **Orbit** turns and zooms the globe.
    - **Paint Ocean** and **Paint Land** paint crust. **Raise Terrain** and **Lower Terrain** thicken or thin it. Brush **Size** and **Strength** are in the **Brush** section.
@@ -58,11 +58,11 @@ The `scripts/` folder holds helpers that drive the app in headless Chrome and sa
    - **Drag Plate:** press on a plate and drag it somewhere else. Neighbours give way.
    - **Paint Plate:** press on a plate and drag to push its boundary into a neighbour.
    - **Undo** reverses the last edit.
-4. Set the planet in the **World** section: **Axial tilt**, **Spin** (like Earth or reversed) and **Sea level**. Click **Recompute Climate** after changing them on a world that is already simulated. Releasing the sea-level slider does this for you.
+4. Set the planet in the **World** section: **Axial Tilt**, **Spin** (like Earth or reversed) and **Sea Level**. Click **Recompute Climate** after changing them on a world that is already simulated. Releasing the sea-level slider does this for you.
 
 ### Running the simulation
 
-1. Choose a **Keyframe spacing** (every 5, 10, 15 or 20 My). Wider spacing runs faster because fewer climate passes are made. The physics always steps 1 My at a time.
+1. Choose a **Keyframe Spacing** (every 5, 10, 15 or 20 My). Wider spacing runs faster because fewer climate passes are made. The physics always steps 1 My at a time.
 2. Click **Simulate**. A bar behind the timeline ticks fills with each 1 My step, the status line shows the time reached, and each keyframe lights up its tick as it is saved. Click **Stop** to halt the run. Everything saved so far stays and can still be viewed.
 3. Drag the timeline slider to look at any saved keyframe. Times that have not been simulated yet cannot be selected.
 
@@ -73,9 +73,9 @@ Editing the world clears the simulation, so run it again to see an edit's effect
 In the **View** section:
 
 - **Layer:** elevation, plates, temperature, rainfall, biomes or geology (rock type). A legend appears under it.
-- **Height exaggeration** stretches the relief so mountains stand out.
-- Switches for cell edges, plate outlines, rivers and lakes, prevailing winds, and reference lines. **Rivers shown** sets how many rivers are drawn.
-- **Render detail** (in the World section) sets how finely the globe is drawn, separately from how finely it is simulated.
+- **Height Exaggeration** stretches the relief so mountains stand out.
+- Switches for cell edges, plate outlines, rivers and lakes, prevailing winds, and reference lines. **Rivers Shown** sets how many rivers are drawn.
+- **Render Detail** (in the World section) sets how finely the globe is drawn, separately from how finely it is simulated.
 
 Hover over the globe to read latitude, longitude, height and, once climate exists, temperature and rainfall.
 
@@ -83,7 +83,7 @@ Hover over the globe to read latitude, longitude, height and, once climate exist
 
 In the **Save and export** section:
 
-- **Export Map (PNG):** pick a **Map projection**, a **Map centre** (or use **Centre on Current View**) and an **Image width**. The map shows the layer currently selected.
+- **Export Map (PNG):** pick a **Map Projection**, a **Map Centre** (or use **Centre on Current View**) and an **Image Width**. The map shows the layer currently selected.
 - **Save World (JSON)** and **Open World (JSON)** keep a world as a file.
 - The current world is also saved automatically in your browser, and a link ending in `?seed=your-seed` opens that seed.
 

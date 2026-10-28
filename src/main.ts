@@ -433,7 +433,7 @@ waterToggle.addEventListener('change', () => {
 /** The slider is the share of flows drawn as rivers, the largest first: further right means more rivers. */
 function updateRiverReadout(): void {
   const share = Number(riverDensityInput.value);
-  document.getElementById('riverReadout')!.textContent = `largest ${Number.isInteger(share) ? share : share.toFixed(1)}% of flows`;
+  document.getElementById('riverReadout')!.textContent = `Largest ${Number.isInteger(share) ? share : share.toFixed(1)}% of flows`;
 }
 riverDensityInput.addEventListener('input', updateRiverReadout);
 updateRiverReadout();
@@ -960,7 +960,7 @@ function brushArcRadians(): number {
 }
 
 function updateBrushSize(): void {
-  sizeReadout.textContent = `(radius about ${Math.round(brushArcRadians() * 6371).toLocaleString()} km)`;
+  sizeReadout.textContent = `(Radius about ${Math.round(brushArcRadians() * 6371).toLocaleString()} km)`;
   updateBrushRing();
 }
 
