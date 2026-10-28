@@ -89,7 +89,7 @@ const OVERLAP = 0.45;
  * roughly halved after it met Asia). Colliding plates relax toward a shared velocity at this rate per My, so a collision
  * ends in a suture and a mountain belt instead of consuming the continents. A rate of 0.06 is a time constant of ~17 My.
  */
-const COLLISION_COUPLING = 0.15;
+const COLLISION_COUPLING = 0.05;
 /** Collision contacts (crust points in contact per step) at which the coupling is at full strength. */
 const COUPLING_CONTACTS = 4;
 /** Share of a plate's slab pull lost while it is held in a continental collision. */
@@ -104,9 +104,14 @@ const PLATE_DRIVE = 0.12;
 /**
  * Neighbouring plates drag on each other: along any shared border, their motions (the drift and the spin both) pull toward each
  * other at this rate per My at full grip, and the motion each plate is driven toward moves at half that rate, so the change lasts.
- * Gentle: over a 200 My run a plate is moved a good way toward its neighbours, not made to match them.
+ * Very gentle: a plate keeps its own course and the crust at the border deforms instead.
  */
-const NEIGHBOUR_DRAG = 0.0008;
+const NEIGHBOUR_DRAG = 0.0002;
+/**
+ * Inertia: a fast plate is harder to turn or slow than a slow one. How easily a plate's motion is changed by its neighbours is
+ * 1 / (1 + speed / INERTIA_SPEED), so a plate at this angular speed (radians per My) changes at half the rate of one at rest.
+ */
+const INERTIA_SPEED = 0.006;
 /** Border contacts (crust points within reach of the other plate per step) at which half the grip is reached. */
 const DRAG_HALF_CONTACTS = 12;
 /** A lattice vertex counts as a hole when no crust point is closer than this. */
@@ -740,6 +745,12 @@ export function stepTectonics(t: TectonicState, dt: number): void {
     for (let m = 0; m < near.length; m++) delta[near[m]!] = delta[near[m]!]! + (gain * weights[m]!) / total;
   }
 
+  const give = new Float64Array(plateCount); // how readily each plate's motion changes (see INERTIA_SPEED)
+  for (let p = 0; p < plateCount; p++) {
+    const wx = omega[p * 3]!, wy = omega[p * 3 + 1]!, wz = omega[p * 3 + 2]!;
+    give[p] = 1 / (1 + Math.sqrt(wx * wx + wy * wy + wz * wz) / INERTIA_SPEED);
+  }
+
   // Colliding continents lock together: relax the plates' angular velocities toward each other, weighted by size.
   const locked = new Float64Array(plateCount); // how firmly each plate is held by a collision, 0 to 1
   for (let a = 0; a < plateCount; a++) {
@@ -754,8 +765,8 @@ export function stepTectonics(t: TectonicState, dt: number): void {
       if (ma + mb === 0) continue;
       for (let k = 0; k < 3; k++) {
         const wa = omega[a * 3 + k]!, wb = omega[b * 3 + k]!;
-        omega[a * 3 + k] = wa + strength * (mb / (ma + mb)) * (wb - wa);
-        omega[b * 3 + k] = wb + strength * (ma / (ma + mb)) * (wa - wb);
+        omega[a * 3 + k] = wa + strength * give[a]! * (mb / (ma + mb)) * (wb - wa);
+        omega[b * 3 + k] = wb + strength * give[b]! * (ma / (ma + mb)) * (wa - wb);
       }
     }
   }
@@ -772,11 +783,11 @@ export function stepTectonics(t: TectonicState, dt: number): void {
       const strength = grip * NEIGHBOUR_DRAG * dt;
       for (let k = 0; k < 3; k++) {
         const wa = omega[a * 3 + k]!, wb = omega[b * 3 + k]!;
-        omega[a * 3 + k] = wa + strength * (mb / (ma + mb)) * (wb - wa);
-        omega[b * 3 + k] = wb + strength * (ma / (ma + mb)) * (wa - wb);
+        omega[a * 3 + k] = wa + strength * give[a]! * (mb / (ma + mb)) * (wb - wa);
+        omega[b * 3 + k] = wb + strength * give[b]! * (ma / (ma + mb)) * (wa - wb);
         const da = omegaDrive[a * 3 + k]!, db = omegaDrive[b * 3 + k]!;
-        omegaDrive[a * 3 + k] = da + 0.5 * strength * (mb / (ma + mb)) * (db - da);
-        omegaDrive[b * 3 + k] = db + 0.5 * strength * (ma / (ma + mb)) * (da - db);
+        omegaDrive[a * 3 + k] = da + 0.5 * strength * give[a]! * (mb / (ma + mb)) * (db - da);
+        omegaDrive[b * 3 + k] = db + 0.5 * strength * give[b]! * (ma / (ma + mb)) * (da - db);
       }
     }
   }
