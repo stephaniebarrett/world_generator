@@ -17,6 +17,8 @@ import { PROJECTIONS, projectionByKey } from './export/projections';
 import { renderProjection } from './export/render';
 import { LatticeIndex } from './sim/latticeIndex';
 import { windArrowLines } from './view/wind';
+import type { CirculationLevel } from './sim/circulation';
+import { FLOW_STOPS, FLOW_TOP_SPEED, flowArrowLines } from './view/flowArrows';
 import { riverPaths } from './view/riverPaths';
 import { elevationFromThickness } from './sim/world';
 import { setupSidePanel } from './view/sidePanel';
@@ -66,6 +68,7 @@ const seaInput = $<HTMLInputElement>('seaLevel');
 const seaReadout = $<HTMLSpanElement>('seaReadout');
 const seaLevel = (): number => Number(seaInput.value);
 const recomputeButton = $<HTMLButtonElement>('recompute');
+const circulationSelect = $<HTMLSelectElement>('circulation');
 const erodeButton = $<HTMLButtonElement>('erode');
 const projectionSelect = $<HTMLSelectElement>('projection');
 const centreLat = $<HTMLInputElement>('centreLat');
@@ -216,8 +219,13 @@ let staticClimate: ClimateAndWater | null = null;
 let climateWorker: Worker | null = null;
 let climateRequest = 0;
 
+function circulationLevel(): CirculationLevel {
+  const n = Number(circulationSelect.value);
+  return n === 0 || n === 1 || n === 3 || n === 4 || n === 5 ? n : 2;
+}
+
 function climateParams(): ClimateParams {
-  return { axialTilt: (Number(tiltInput.value) * Math.PI) / 180, spin: Number(spinSelect.value) === -1 ? -1 : 1, seaLevel: seaLevel() };
+  return { axialTilt: (Number(tiltInput.value) * Math.PI) / 180, spin: Number(spinSelect.value) === -1 ? -1 : 1, seaLevel: seaLevel(), circulation: circulationLevel() };
 }
 
 /** Ask the helper worker for the climate of a thickness field; the callback only fires for the newest request. */
@@ -234,9 +242,9 @@ function requestClimate(thickness: Float32Array, rock: Uint8Array | undefined, d
     if (msg.type !== 'climate' || msg.id !== id) return;
     climateWorker?.removeEventListener('message', handler);
     if (id === climateRequest) {
-      const { temperature, precipitation, flowTo, discharge, lake } = msg;
+      const { temperature, precipitation, flowTo, discharge, lake, windEast, windNorth, currentEast, currentNorth } = msg;
       climateSettled = undefined;
-      done({ temperature, precipitation, flowTo, discharge, lake });
+      done({ temperature, precipitation, flowTo, discharge, lake, windEast, windNorth, currentEast, currentNorth });
       settled?.();
     }
   };
@@ -436,6 +444,41 @@ function updateWinds(): void {
 }
 windToggle.addEventListener('change', updateWinds);
 
+let flowLines: THREE.LineSegments | null = null;
+/** Degrees between flow arrows by circulation detail: the finer the flow, the denser and smaller the arrows. */
+const ARROW_STEP_DEG = [6, 5, 3.5, 3, 2.6, 2.2] as const;
+
+/** Arrows for the Wind Currents and Ocean Currents layers, coloured and sized by speed. */
+function updateFlowArrows(): void {
+  if (flowLines) {
+    flowLines.geometry.dispose();
+    scene.remove(flowLines);
+    flowLines = null;
+  }
+  const layer = layerSelect.value;
+  const climate = currentWater();
+  if ((layer !== 'winds' && layer !== 'currents') || !climate || !latticeIndex) return;
+  const index = latticeIndex;
+  const thickness = currentThickness();
+  const east = layer === 'winds' ? climate.windEast : climate.currentEast;
+  const north = layer === 'winds' ? climate.windNorth : climate.currentNorth;
+  const { positions, colors } = flowArrowLines((x, y, z) => {
+    const v = index.nearest(x, y, z);
+    // Currents run in the sea only; the wind is shown everywhere.
+    if (layer === 'currents' && elevationFromThickness(thickness[v]!) - seaLevel() > 0) return null;
+    return [east[v]!, north[v]!];
+  },
+  // Currents ride on the sea surface (a hair above, so they do not flicker against it); the wind follows the terrain.
+  layer === 'currents' ? () => 1 : (x, y, z) => Math.max(1, radiusAtVertex(index.nearest(x, y, z))),
+  ARROW_STEP_DEG[circulationLevel()],
+  layer === 'currents' ? 0.0015 : undefined);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  flowLines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ vertexColors: true }));
+  scene.add(flowLines);
+}
+
 waterToggle.addEventListener('change', () => {
   ensureClimateForLayer();
   recolor();
@@ -466,7 +509,7 @@ let climateTimer: number | undefined;
 function ensureClimateForLayer(): void {
   if (frames[frameIndex] || staticClimate) return;
   const layer = layerSelect.value;
-  const needed = layer === 'temperature' || layer === 'rainfall' || layer === 'biomes' || waterToggle.checked;
+  const needed = layer === 'temperature' || layer === 'rainfall' || layer === 'biomes' || layer === 'winds' || layer === 'currents' || waterToggle.checked;
   if (!needed) return;
   window.clearTimeout(climateTimer);
   climateTimer = window.setTimeout(() => {
@@ -579,6 +622,11 @@ seaInput.addEventListener('input', () => {
 });
 // The climate and rivers follow the sea, so they are worked out again once the slider is let go.
 seaInput.addEventListener('change', recomputeClimate);
+// So does the circulation detail: it changes how land steers the sea and the air.
+circulationSelect.addEventListener('change', () => {
+  recomputeClimate();
+  scheduleSave();
+});
 
 function refreshTimeline(): void {
   const frame = frames[frameIndex];
@@ -719,7 +767,10 @@ const legend = document.getElementById('legend') as HTMLDivElement;
 function updateLegend(): void {
   const layer = layerSelect.value;
   const items =
-    layer === 'geology' ? ROCKS.map((r) => ({ name: r.name, color: r.color })) : layer === 'biomes' ? BIOMES.map((b) => ({ name: b.name, color: b.color })) : [];
+    layer === 'geology' ? ROCKS.map((r) => ({ name: r.name, color: r.color }))
+    : layer === 'biomes' ? BIOMES.map((b) => ({ name: b.name, color: b.color }))
+    : layer === 'winds' || layer === 'currents' ? FLOW_STOPS.map((s) => ({ name: `${(s[0] * FLOW_TOP_SPEED).toFixed(1)}${s[0] === 1 ? ' or more' : ''}`, color: [s[1], s[2], s[3]] as const }))
+    : [];
   legend.replaceChildren(
     ...items.map((item) => {
       const row = document.createElement('div');
@@ -750,6 +801,7 @@ function recolor(withRivers = true): void {
   if (withRivers) {
     updateRivers();
     updateWinds();
+    updateFlowArrows();
     updatePlateOutlines();
   }
   updatePlateArrows();
@@ -1210,7 +1262,7 @@ resize();
 let saveTimer: number | undefined;
 
 function planetSettings(): PlanetSettings {
-  return { tiltDegrees: Number(tiltInput.value), spin: Number(spinSelect.value) === -1 ? -1 : 1, seaLevel: seaLevel() };
+  return { tiltDegrees: Number(tiltInput.value), spin: Number(spinSelect.value) === -1 ? -1 : 1, seaLevel: seaLevel(), circulation: circulationLevel() };
 }
 
 function applyPlanet(p: PlanetSettings): void {
@@ -1218,6 +1270,7 @@ function applyPlanet(p: PlanetSettings): void {
   tiltReadout.textContent = `${p.tiltDegrees}°`;
   spinSelect.value = String(p.spin);
   seaInput.value = String(p.seaLevel);
+  circulationSelect.value = String(p.circulation);
   seaReadout.textContent = `${p.seaLevel > 0 ? '+' : ''}${p.seaLevel} m`;
   rebuildGuides();
 }

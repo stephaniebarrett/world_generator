@@ -41,10 +41,19 @@ export interface Frame {
   readonly flowTo: Int32Array;
   readonly discharge: Float32Array;
   readonly lake: Uint8Array;
+  /** Year-round mean wind, and the ocean current (zero on land, and everywhere when circulation is off), in local east and north directions. */
+  readonly windEast: Float32Array;
+  readonly windNorth: Float32Array;
+  readonly currentEast: Float32Array;
+  readonly currentNorth: Float32Array;
 }
 
 /** Annual climate for a thickness field on the lattice. */
-export type ClimateAndWater = Pick<Frame, 'temperature' | 'precipitation' | 'flowTo' | 'discharge' | 'lake'>;
+export type ClimateAndWater = Pick<Frame, 'temperature' | 'precipitation' | 'flowTo' | 'discharge' | 'lake' | 'windEast' | 'windNorth' | 'currentEast' | 'currentNorth'>;
+
+/** The arrays of a climate result, to hand to another thread without copying. */
+export const climateBuffers = (c: ClimateAndWater): ArrayBuffer[] =>
+  [c.temperature, c.precipitation, c.flowTo, c.discharge, c.lake, c.windEast, c.windNorth, c.currentEast, c.currentNorth].map((a) => a.buffer as ArrayBuffer);
 
 export function climateForThickness(frequency: number, thickness: ArrayLike<number>, params: ClimateParams = DEFAULT_CLIMATE, rock?: ArrayLike<number>): ClimateAndWater {
   const lattice = buildLattice(frequency);
@@ -53,7 +62,7 @@ export function climateForThickness(frequency: number, thickness: ArrayLike<numb
   for (let v = 0; v < elevation.length; v++) elevation[v] = elevationFromThickness(thickness[v]!) - sea;
   const c = computeClimate(lattice, elevation, params);
   const water = computeWater(lattice, elevation, c.meanPrecipitation, rock);
-  return { temperature: c.meanTemperature, precipitation: c.meanPrecipitation, ...water };
+  return { temperature: c.meanTemperature, precipitation: c.meanPrecipitation, windEast: c.meanWindEast, windNorth: c.meanWindNorth, currentEast: c.currentEast, currentNorth: c.currentNorth, ...water };
 }
 
 /** Progress report: simulated time so far, and whether a keyframe (climate and rivers) is being worked out. */

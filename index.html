@@ -173,6 +173,16 @@
             <option value="ultra">Ultra (~580k cells, heavy)</option>
           </select>
         </label>
+        <label>Circulation Detail <span class="hintline">Sets how land steers the sea and the air<span class="more">; higher levels are slower</span></span>
+          <select id="circulation">
+            <option value="0">Off</option>
+            <option value="1">Low</option>
+            <option value="2" selected>Medium</option>
+            <option value="3">High</option>
+            <option value="4">Very high</option>
+            <option value="5">Ultra</option>
+          </select>
+        </label>
         <label>Keyframe Spacing <span class="hintline">How often a run is saved to the timeline<span class="more">; wider spacing runs faster</span></span>
           <select id="keyframe">
             <option value="5">Every 5 My</option>
@@ -237,6 +247,8 @@
             <option value="rainfall">Rainfall</option>
             <option value="biomes">Biomes</option>
             <option value="geology">Geology</option>
+            <option value="winds">Wind Currents</option>
+            <option value="currents">Ocean Currents</option>
           </select>
         </label>
         <div id="legend"></div>

@@ -7,7 +7,7 @@ const recipe = { ...newRecipe('my seed', 32), edits: [edit] };
 
 describe('world file', () => {
   it('round-trips a recipe and planet settings exactly', () => {
-    const file = toWorldFile(recipe, { tiltDegrees: 12, spin: -1, seaLevel: 350 });
+    const file = toWorldFile(recipe, { tiltDegrees: 12, spin: -1, seaLevel: 350, circulation: 1 });
     expect(parseWorld(serializeWorld(file))).toEqual(file);
   });
 
@@ -20,9 +20,9 @@ describe('world file', () => {
   });
 
   it('reads files saved before sea level existed, and ignores an absurd sea level', () => {
-    const file = JSON.parse(serializeWorld(toWorldFile(recipe, { tiltDegrees: 30, spin: 1, seaLevel: 0 })));
+    const file = JSON.parse(serializeWorld(toWorldFile(recipe, { tiltDegrees: 30, spin: 1, seaLevel: 0, circulation: 2 })));
     delete file.planet.seaLevel;
-    expect(parseWorld(JSON.stringify(file)).planet).toEqual({ tiltDegrees: 30, spin: 1, seaLevel: 0 });
+    expect(parseWorld(JSON.stringify(file)).planet).toEqual({ tiltDegrees: 30, spin: 1, seaLevel: 0, circulation: 2 });
     file.planet.seaLevel = 99999;
     expect(parseWorld(JSON.stringify(file)).planet.seaLevel).toBe(0);
   });

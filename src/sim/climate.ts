@@ -8,6 +8,7 @@
 // Latitude comes from z: the planet spins about the z axis. Only + - * / sqrt are used, plus a series
 // for the small sun-declination angle, so results are identical on every machine.
 
+import { bendWinds, localFrame, oceanCurrents, oceanHeatAnomaly, type CirculationLevel } from './circulation';
 import type { Lattice } from './lattice';
 
 export interface ClimateParams {
@@ -17,6 +18,8 @@ export interface ClimateParams {
   readonly spin: 1 | -1;
   /** Sea level in metres above the default; the sea covers whatever lies below it. */
   readonly seaLevel?: number;
+  /** How far to work out how land steers the sea and the air (see circulation.ts); 0 or missing leaves the plain wind belts. */
+  readonly circulation?: CirculationLevel;
 }
 
 export const DEFAULT_CLIMATE: ClimateParams = { axialTilt: 0.409, spin: 1 };
@@ -35,6 +38,11 @@ export interface Climate {
   readonly windNorth: readonly Float32Array[];
   readonly meanTemperature: Float32Array;
   readonly meanPrecipitation: Float32Array;
+  /** Year-round mean wind and surface ocean current in local east and north directions (current is zero on land and when circulation is off). */
+  readonly meanWindEast: Float32Array;
+  readonly meanWindNorth: Float32Array;
+  readonly currentEast: Float32Array;
+  readonly currentNorth: Float32Array;
 }
 
 const EARTH_RADIUS_KM = 6371;
@@ -155,6 +163,23 @@ export function computeClimate(lattice: Lattice, elevation: ArrayLike<number>, p
     sunMean[v] = sum / SEASONS;
   }
 
+  // Land steering the sea and the air: ocean currents (from the year-round winds) and the warmth or cold they carry.
+  const level = params.circulation ?? 0;
+  const frame = level > 0 ? localFrame(lattice) : null;
+  let currents: Float64Array | null = null;
+  let seaWarmth: Float32Array | null = null;
+  if (frame) {
+    const beltEast = new Float32Array(n), beltNorth = new Float32Array(n), equilibrium = new Float64Array(n);
+    for (let v = 0; v < n; v++) {
+      const [u, m] = prevailingWind(positions[v * 3 + 2]!, params);
+      beltEast[v] = u;
+      beltNorth[v] = m;
+      equilibrium[v] = -28 + 58 * sunMean[v]!;
+    }
+    currents = oceanCurrents(lattice, elevation, frame, beltEast, beltNorth, level, km);
+    seaWarmth = oceanHeatAnomaly(lattice, elevation, currents, equilibrium, level, km);
+  }
+
   const temperature: Float32Array[] = [];
   const precipitation: Float32Array[] = [];
   const windEast: Float32Array[] = [];
@@ -169,6 +194,7 @@ export function computeClimate(lattice: Lattice, elevation: ArrayLike<number>, p
       const swing = 58 * (sunlight[s]![v]! - sunMean[v]!);
       let t = sea + swing * (e > 0 ? 1.35 : 0.55);
       if (e > 0) t -= (LAPSE_PER_KM * e) / 1000;
+      else if (seaWarmth) t += seaWarmth[v]!; // warm and cold currents
       temp[v] = t;
     }
     temperature.push(temp);
@@ -207,6 +233,16 @@ export function computeClimate(lattice: Lattice, elevation: ArrayLike<number>, p
       const sinking = Math.max(0, 1 - dSub * dSub);
       convective[v] = RAIN.background * (1 - RAIN.subsidence * sinking) + RAIN.itcz * itcz + RAIN.front * front;
     }
+    if (frame) {
+      // Land heating and cooling pull the wind about (monsoons), and mountains turn it aside.
+      const landSwing = new Float64Array(n);
+      for (let v = 0; v < n; v++) if (elevation[v]! > 0) landSwing[v] = 58 * (sunlight[s]![v]! - sunMean[v]!) * (1.35 - 0.55);
+      bendWinds(lattice, elevation, frame, landSwing, wx, wy, wz, km);
+      for (let v = 0; v < n; v++) {
+        east[v] = wx[v]! * frame.east[v * 3]! + wy[v]! * frame.east[v * 3 + 1]! + wz[v]! * frame.east[v * 3 + 2]!;
+        north[v] = wx[v]! * frame.north[v * 3]! + wy[v]! * frame.north[v * 3 + 1]! + wz[v]! * frame.north[v * 3 + 2]!;
+      }
+    }
     windEast.push(east);
     windNorth.push(north);
 
@@ -217,11 +253,6 @@ export function computeClimate(lattice: Lattice, elevation: ArrayLike<number>, p
     const q = new Float64Array(n);
     const rain = new Float64Array(n);
     const qsat = new Float64Array(n);
-    for (let v = 0; v < n; v++) {
-      const warm = Math.max(0.03, (temp[v]! + 10) / 40);
-      qsat[v] = 120 * warm * warm;
-      if (elevation[v]! <= 0) q[v] = qsat[v]!;
-    }
     // How much each neighbour lies upwind of each point depends only on the wind, which is fixed for the season,
     // and so is the terrain. Everything that follows from those alone (the upwind ground, the lift over it, how much
     // moisture is lost and how hard it rains) is worked out once, not on every sweep; only the moisture itself changes.
@@ -261,6 +292,33 @@ export function computeClimate(lattice: Lattice, elevation: ArrayLike<number>, p
       rainRate[v] = loss / rate;
       keepShare[v] = 1 - loss;
     }
+    // Sea air carries the warmth or chill of the water inland, fading as it crosses the land.
+    if (seaWarmth) {
+      const warmth = new Float64Array(n);
+      const heatKeep = 1 - Math.min(0.5, 0.3 * rate);
+      for (let v = 0; v < n; v++) warmth[v] = elevation[v]! <= 0 ? seaWarmth[v]! : 0;
+      for (let pass = 0, passes = clamp(Math.round(4000 / km), 20, 150); pass < passes; pass++) {
+        for (let v = 0; v < n; v++) {
+          if (elevation[v]! <= 0) continue;
+          let inflow = 0;
+          if (wsums[v]! > 1e-6) {
+            for (let k = offsets[v]!; k < offsets[v + 1]!; k++) inflow += upwind[k]! * warmth[neighbors[k]!]!;
+            inflow /= wsums[v]!;
+          } else {
+            for (let k = offsets[v]!; k < offsets[v + 1]!; k++) inflow += warmth[neighbors[k]!]!;
+            inflow /= offsets[v + 1]! - offsets[v]!;
+          }
+          warmth[v] = inflow * heatKeep;
+        }
+      }
+      for (let v = 0; v < n; v++) if (elevation[v]! > 0) temp[v] = temp[v]! + 0.7 * warmth[v]!;
+    }
+    // The air can hold more moisture where it is warm: sea air starts full.
+    for (let v = 0; v < n; v++) {
+      const warm = Math.max(0.03, (temp[v]! + 10) / 40);
+      qsat[v] = 120 * warm * warm;
+      if (elevation[v]! <= 0) q[v] = qsat[v]!;
+    }
     for (let pass = 0; pass < sweeps; pass++) {
       for (let v = 0; v < n; v++) {
         let qIn: number;
@@ -297,5 +355,19 @@ export function computeClimate(lattice: Lattice, elevation: ArrayLike<number>, p
     meanTemperature[v] = t / SEASONS;
     meanPrecipitation[v] = p / SEASONS;
   }
-  return { temperature, precipitation, windEast, windNorth, meanTemperature, meanPrecipitation };
+  const meanWindEast = new Float32Array(n), meanWindNorth = new Float32Array(n);
+  for (let v = 0; v < n; v++) {
+    let e = 0, m = 0;
+    for (let s = 0; s < SEASONS; s++) { e += windEast[s]![v]!; m += windNorth[s]![v]!; }
+    meanWindEast[v] = e / SEASONS;
+    meanWindNorth[v] = m / SEASONS;
+  }
+  const currentEast = new Float32Array(n), currentNorth = new Float32Array(n);
+  if (frame && currents) {
+    for (let v = 0; v < n; v++) {
+      currentEast[v] = currents[v * 3]! * frame.east[v * 3]! + currents[v * 3 + 1]! * frame.east[v * 3 + 1]! + currents[v * 3 + 2]! * frame.east[v * 3 + 2]!;
+      currentNorth[v] = currents[v * 3]! * frame.north[v * 3]! + currents[v * 3 + 1]! * frame.north[v * 3 + 1]! + currents[v * 3 + 2]! * frame.north[v * 3 + 2]!;
+    }
+  }
+  return { temperature, precipitation, windEast, windNorth, meanTemperature, meanPrecipitation, meanWindEast, meanWindNorth, currentEast, currentNorth };
 }

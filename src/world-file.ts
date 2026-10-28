@@ -1,6 +1,7 @@
 // The saved form of a world: its recipe plus planet settings, as JSON.
 // Parsing validates everything, because the file may come from anywhere.
 
+import type { CirculationLevel } from './sim/circulation';
 import { SIM_VERSION, type Edit, type Falloff, type Recipe } from './sim/world';
 
 export const FILE_FORMAT = 'world-generator';
@@ -12,6 +13,8 @@ export interface PlanetSettings {
   readonly spin: 1 | -1;
   /** Sea level in metres above the default (negative lowers the sea and exposes more land). */
   readonly seaLevel: number;
+  /** Circulation detail, 0 (off) to 3: how far land is allowed to steer the sea and the air. */
+  readonly circulation: CirculationLevel;
 }
 
 export interface WorldFile {
@@ -21,7 +24,7 @@ export interface WorldFile {
   readonly planet: PlanetSettings;
 }
 
-export const DEFAULT_PLANET: PlanetSettings = { tiltDegrees: 23, spin: 1, seaLevel: 0 };
+export const DEFAULT_PLANET: PlanetSettings = { tiltDegrees: 23, spin: 1, seaLevel: 0, circulation: 2 };
 
 export function toWorldFile(recipe: Recipe, planet: PlanetSettings): WorldFile {
   return { format: FILE_FORMAT, version: FILE_VERSION, recipe, planet };
@@ -121,7 +124,7 @@ export function parseWorld(text: string): WorldFile {
   const p = f.planet as Record<string, unknown> | null;
   const planet: PlanetSettings =
     p && isFinite_(p.tiltDegrees) && (p.spin === 1 || p.spin === -1) && p.tiltDegrees >= 0 && p.tiltDegrees <= 90
-      ? { tiltDegrees: p.tiltDegrees, spin: p.spin, seaLevel: isFinite_(p.seaLevel) && p.seaLevel >= -3000 && p.seaLevel <= 6000 ? p.seaLevel : 0 }
+      ? { tiltDegrees: p.tiltDegrees, spin: p.spin, seaLevel: isFinite_(p.seaLevel) && p.seaLevel >= -3000 && p.seaLevel <= 6000 ? p.seaLevel : 0, circulation: isFinite_(p.circulation) && Number.isInteger(p.circulation) && p.circulation >= 0 && p.circulation <= 5 ? (p.circulation as CirculationLevel) : DEFAULT_PLANET.circulation }
       : DEFAULT_PLANET;
 
   return { format: FILE_FORMAT, version: FILE_VERSION, recipe: { seed: r.seed, simVersion: r.simVersion, frequency: r.frequency, edits }, planet };

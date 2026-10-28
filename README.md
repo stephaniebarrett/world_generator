@@ -72,9 +72,10 @@ Editing the world clears the simulation, so run it again to see an edit's effect
 
 In the **View** section:
 
-- **Layer:** elevation, plates, temperature, rainfall, biomes or geology (rock type). A legend appears under it.
+- **Layer:** elevation, plates, temperature, rainfall, biomes, geology (rock type), wind currents or ocean currents. A legend appears under it. The two current layers draw arrows that are longer and warmer-coloured where the flow is faster.
 - **Height Exaggeration** stretches the relief so mountains stand out.
 - Switches for cell edges, plate outlines, rivers and lakes, prevailing winds, and reference lines. **Rivers Shown** sets how many rivers are drawn.
+- **Circulation Detail** (in the World section) sets how far land is allowed to steer the sea and the air: ocean currents turn along coasts and carry warm or cold water, land heating bends the winds (monsoons), and mountains turn the wind aside. Off keeps the plain wind belts. Higher levels settle further but take longer at each keyframe, and a new level applies after **Recompute Climate** or the next run.
 - **Render Detail** (in the World section) sets how finely the globe is drawn, separately from how finely it is simulated.
 
 Hover over the globe to read latitude, longitude, height and, once climate exists, temperature and rainfall.

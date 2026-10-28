@@ -1,7 +1,7 @@
 // Web Worker entry: works out the climate, rivers and lakes of a keyframe for a running simulation, so the plates can keep moving meanwhile.
 
 import type { ClimateParams } from './climate';
-import { climateForThickness, type ClimateAndWater } from './runner';
+import { climateBuffers, climateForThickness, type ClimateAndWater } from './runner';
 
 export interface ClimateJob {
   id: number;
@@ -22,7 +22,7 @@ ctx.addEventListener('message', (event) => {
   const job = event.data;
   try {
     const c = climateForThickness(job.frequency, job.thickness, job.params, job.rock);
-    ctx.postMessage({ id: job.id, ...c } satisfies ClimateResult, [c.temperature.buffer, c.precipitation.buffer, c.flowTo.buffer, c.discharge.buffer, c.lake.buffer]);
+    ctx.postMessage({ id: job.id, ...c } satisfies ClimateResult, climateBuffers(c));
   } catch (e) {
     ctx.postMessage({ id: job.id, error: String(e) } satisfies ClimateResult);
   }
