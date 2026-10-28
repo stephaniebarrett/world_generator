@@ -614,7 +614,7 @@ function updateLegend(): void {
 }
 
 /** Repaint the cells; `withRivers` is false while painting, when rebuilding the river lines on every dab would be wasteful. */
-setupSidePanel(document.querySelector<HTMLElement>('#side')!);
+const openSection = setupSidePanel(document.querySelector<HTMLElement>('#side')!, ['Brush', 'View', 'Save and export']);
 
 const epochLabel = document.querySelector<HTMLElement>('#epoch')!;
 
@@ -697,6 +697,7 @@ for (const b of toolButtons) {
     for (const o of toolButtons) o.classList.toggle('active', o === b);
     hint.textContent = HINTS[tool] ?? '';
     highlightPlate(-1);
+    if (BRUSH_TOOLS.has(tool) || tool === 'removePlate') openSection('Brush'); // the tools that use its settings
     if (isPlateTool() && layerSelect.value !== 'plates') {
       layerSelect.value = 'plates'; // plate tools make no sense without seeing the plates
       layerSelect.dispatchEvent(new Event('change'));

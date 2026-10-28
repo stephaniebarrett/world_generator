@@ -19,7 +19,11 @@ function remember(key: string, value: string): void {
   try { localStorage.setItem(key, value); } catch { /* private window: the choice just is not kept */ }
 }
 
-export function setupSidePanel(side: HTMLElement): void {
+/**
+ * `foldedAtFirst` names the sections that start folded the first time the app runs in a browser; after that the
+ * reader's own choices are used. Returns a function that unfolds a section by name.
+ */
+export function setupSidePanel(side: HTMLElement, foldedAtFirst: readonly string[] = []): (name: string) => void {
   const root = document.documentElement;
   const setWidth = (width: number) => root.style.setProperty('--side-width', `${clampSideWidth(width, window.innerWidth)}px`);
   const saved = Number(remembered(WIDTH_KEY));
@@ -50,8 +54,12 @@ export function setupSidePanel(side: HTMLElement): void {
   });
   window.addEventListener('resize', () => setWidth(side.getBoundingClientRect().width));
 
-  let folded: string[] = [];
-  try { folded = JSON.parse(remembered(FOLDED_KEY) ?? '[]') as string[]; } catch { /* start unfolded */ }
+  let folded: string[] = [...foldedAtFirst];
+  const savedFolds = remembered(FOLDED_KEY);
+  if (savedFolds !== null) {
+    try { folded = JSON.parse(savedFolds) as string[]; } catch { /* keep the first-run choice */ }
+  }
+  const unfolders = new Map<string, () => void>();
   for (const section of side.querySelectorAll<HTMLElement>('section')) {
     const heading = section.querySelector('h2');
     if (!heading) continue;
@@ -67,15 +75,18 @@ export function setupSidePanel(side: HTMLElement): void {
       heading.setAttribute('aria-expanded', String(!isFolded));
     };
     fold(folded.includes(name));
-    const toggle = () => {
-      fold(!section.classList.contains('folded'));
+    const set = (isFolded: boolean) => {
+      fold(isFolded);
       folded = folded.filter((n) => n !== name);
-      if (section.classList.contains('folded')) folded.push(name);
+      if (isFolded) folded.push(name);
       remember(FOLDED_KEY, JSON.stringify(folded));
     };
+    const toggle = () => set(!section.classList.contains('folded'));
+    unfolders.set(name, () => { if (section.classList.contains('folded')) set(false); });
     heading.addEventListener('click', toggle);
     heading.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
     });
   }
+  return (name) => unfolders.get(name)?.();
 }
