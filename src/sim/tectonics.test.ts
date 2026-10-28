@@ -134,6 +134,49 @@ describe('tectonics', () => {
     expect(pileWeight(0, 0, 0, 0, 0, 1, radius, forward)).toBe(1);
   });
 
+  it('slows the front of a colliding plate while its back keeps coming, so the plate is compressed', () => {
+    const t = createTectonics(world(35), hemispheres(-SPEED, SPEED));
+    run(t, 15);
+    // Plate 0 (z > 0) moves toward the fault at z = 0; a point's deviation that opposes its plate's motion is a slowing.
+    let front = 0, frontN = 0, back = 0, backN = 0;
+    for (let i = 0; i < t.crust.count; i++) {
+      if (t.crust.plate[i] !== 0 || Math.abs(t.crust.pos[i * 3 + 1]!) < 0.5) continue;
+      const z = t.crust.pos[i * 3 + 2]!;
+      const toward = -t.crust.vel[i * 3 + 2]!; // away from the fault is +z for plate 0, so a slowing has vel.z > 0 here
+      const slowing = -toward;
+      if (z < 0.15) { front += slowing; frontN++; } else if (z > 0.6) { back += slowing; backN++; }
+    }
+    expect(frontN).toBeGreaterThan(0);
+    expect(backN).toBeGreaterThan(0);
+    // The front is held back more than the far side of the plate, which has barely felt it.
+    expect(front / frontN).toBeGreaterThan(back / backN);
+    expect(front / frontN).toBeGreaterThan(1e-5);
+  });
+
+  it('pulls the edges of plates that are opening faster than the rest, so the plates are stretched', () => {
+    const t = createTectonics(world(7), hemispheres(SPEED, -SPEED));
+    run(t, 10);
+    let edge = 0, edgeN = 0, far = 0, farN = 0;
+    for (let i = 0; i < t.crust.count; i++) {
+      if (t.crust.plate[i] !== 0 || Math.abs(t.crust.pos[i * 3 + 1]!) < 0.5) continue;
+      const z = t.crust.pos[i * 3 + 2]!;
+      const away = t.crust.vel[i * 3 + 2]!; // plate 0 lies at z > 0, so away from the other plate is +z
+      if (z < 0.15) { edge += away; edgeN++; } else if (z > 0.6) { far += away; farN++; }
+    }
+    expect(edgeN).toBeGreaterThan(0);
+    expect(edge / edgeN).toBeGreaterThan(far / farN);
+  });
+
+  it('leaves a plate that nothing presses on moving as one rigid block', () => {
+    const setup: PlateSetup = {
+      plateOf: new Int32Array(lattice.vertexCount),
+      plates: [{ id: 0, seedVertex: 0, axis: [0, 1, 0], angularSpeed: 0.02 }],
+    };
+    const t = createTectonics(world(7), setup);
+    run(t, 10);
+    for (let i = 0; i < t.crust.count * 3; i++) expect(t.crust.vel[i]).toBe(0);
+  });
+
   it('creates new seafloor where plates pull apart, with no holes left', () => {
     const t = createTectonics(world(35), hemispheres(SPEED, -SPEED));
     run(t, 25);

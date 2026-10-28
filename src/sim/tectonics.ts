@@ -111,6 +111,25 @@ const NEIGHBOUR_DRAG = 0.0008;
 const DRAG_HALF_CONTACTS = 12;
 /** A lattice vertex counts as a hole when no crust point is closer than this. */
 const HOLE = 0.7;
+/**
+ * Plates are not rigid. Each crust point has a velocity of its own: the rotation of its plate plus a small deviation that builds and fades.
+ * Where continents collide the points at the front are slowed by the crust ahead of them, at this rate (per My, per unit of closing speed
+ * and edge weight) while the points behind keep coming, so a plate is compressed; where plates open, the points at the edge are pulled
+ * away faster, so a plate is stretched. Different stretches of a border meet different resistance, which twists a plate.
+ */
+const COLLISION_RESISTANCE = 0.4;
+const OPENING_PULL = 0.25;
+/** The deviation spreads through a plate: points within this many spacings share it, at this share of the difference per My. */
+const STIFFNESS_REACH = 1.8;
+const STIFFNESS = 0.2;
+/** Share of the deviation that fades back toward the plate's own rotation each My, and the most it can reach (rad/My). */
+const DEVIATION_FADE = 0.15;
+const DEVIATION_MAX = 0.02;
+/**
+ * Crust that is squeezed into less area gets thicker, and crust that is stretched over more gets thinner: its thickness changes by this
+ * share of the rate its area is changing (the divergence of the points' velocity, from the differences between neighbours).
+ */
+const AREA_TO_THICKNESS = 1;
 /** Neighbour search cell, in multiples of spacing (must be >= REACH and >= the spawn search radius). */
 const CELL = 2.5;
 /**
@@ -177,6 +196,8 @@ export interface Crust {
   rock: Uint8Array;
   /** Fault scarring, 0 (intact) to 1 (heavily broken). */
   scar: Float64Array;
+  /** How this point's velocity differs from its plate's rotation (surface velocity, xyz, rad/My): the plate stretching, compressing and twisting. */
+  vel: Float64Array;
 }
 
 export interface TectonicState {
@@ -251,6 +272,7 @@ export function createTectonics(world: WorldState, setup: PlateSetup, options: T
     age: new Float64Array(capacity),
     rock: new Uint8Array(capacity),
     scar: new Float64Array(capacity),
+    vel: new Float64Array(capacity * 3),
   };
   crust.pos.set(lattice.positions);
   crust.plate.set(setup.plateOf);
@@ -367,6 +389,20 @@ function forEachNear(grid: Grid, x: number, y: number, z: number, visit: (j: num
   }
 }
 
+/** Visit the points in every cell within `radius` of (x, y, z): a wider search than forEachNear, for a reach that varies from point to point. */
+function forEachWithin(grid: Grid, x: number, y: number, z: number, radius: number, visit: (j: number) => void): void {
+  const { dims, cell, head, next } = grid;
+  const cx = coord(x, cell, dims), cy = coord(y, cell, dims), cz = coord(z, cell, dims);
+  const r = Math.max(1, Math.ceil(radius / cell));
+  for (let a = Math.max(0, cx - r); a <= Math.min(dims - 1, cx + r); a++) {
+    for (let b = Math.max(0, cy - r); b <= Math.min(dims - 1, cy + r); b++) {
+      for (let c = Math.max(0, cz - r); c <= Math.min(dims - 1, cz + r); c++) {
+        for (let j = head[(a * dims + b) * dims + c]!; j >= 0; j = next[j]!) visit(j);
+      }
+    }
+  }
+}
+
 /** True if any point lies within sqrt(r2) of (x, y, z). Stops at the first one found. */
 function anyWithin(grid: Grid, pos: Float64Array, x: number, y: number, z: number, r2: number): boolean {
   const { dims, cell, head, next } = grid;
@@ -408,7 +444,7 @@ function nearestNear(grid: Grid, pos: Float64Array, x: number, y: number, z: num
 export function stepTectonics(t: TectonicState, dt: number): void {
   const { crust, omega, omegaDrive, spacing } = t;
   const n = crust.count;
-  const { pos, plate, thickness, age } = crust;
+  const { pos, plate, thickness, age, vel } = crust;
 
   // 1. Age and move: rigid rotation about each plate's axis (Rodrigues, small angle).
   for (let i = 0; i < n; i++) {
@@ -416,20 +452,31 @@ export function stepTectonics(t: TectonicState, dt: number): void {
     const p = plate[i]!;
     const wx = omega[p * 3]!, wy = omega[p * 3 + 1]!, wz = omega[p * 3 + 2]!;
     const speed = Math.sqrt(wx * wx + wy * wy + wz * wz);
-    if (speed === 0) continue;
     const theta = speed * dt;
     const kx = wx / speed, ky = wy / speed, kz = wz / speed;
     const s = sinSmall(theta), c = cosSmall(theta);
     const x = pos[i * 3]!, y = pos[i * 3 + 1]!, z = pos[i * 3 + 2]!;
     const dot = kx * x + ky * y + kz * z;
     const cx = ky * z - kz * y, cy = kz * x - kx * z, cz = kx * y - ky * x;
-    const nx = x * c + cx * s + kx * dot * (1 - c);
-    const ny = y * c + cy * s + ky * dot * (1 - c);
-    const nz = z * c + cz * s + kz * dot * (1 - c);
+    let nx = x, ny = y, nz = z;
+    if (speed !== 0) {
+      nx = x * c + cx * s + kx * dot * (1 - c);
+      ny = y * c + cy * s + ky * dot * (1 - c);
+      nz = z * c + cz * s + kz * dot * (1 - c);
+    }
+    // Then the point's own drift relative to its plate.
+    nx += vel[i * 3]! * dt;
+    ny += vel[i * 3 + 1]! * dt;
+    nz += vel[i * 3 + 2]! * dt;
     const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
     pos[i * 3] = nx / len;
     pos[i * 3 + 1] = ny / len;
     pos[i * 3 + 2] = nz / len;
+    // Keep the deviation along the surface at the new place.
+    const radial = vel[i * 3]! * pos[i * 3]! + vel[i * 3 + 1]! * pos[i * 3 + 1]! + vel[i * 3 + 2]! * pos[i * 3 + 2]!;
+    vel[i * 3] = vel[i * 3]! - radial * pos[i * 3]!;
+    vel[i * 3 + 1] = vel[i * 3 + 1]! - radial * pos[i * 3 + 1]!;
+    vel[i * 3 + 2] = vel[i * 3 + 2]! - radial * pos[i * 3 + 2]!;
   }
 
   // 2. Border interactions.
@@ -460,6 +507,7 @@ export function stepTectonics(t: TectonicState, dt: number): void {
   const erupted = new Uint8Array(n); // points that received arc magma this step
   const deadKind = new Uint8Array(n); // how a consumed point's crust is handled: 1 continental collision, 2 subduction
   const deadTo = new Int32Array(n); // for subduction: the plate that overrides it
+  const acc = new Float64Array(n * 3); // change of velocity per My from the borders
   const carryGain = new Float64Array(n); // uplift a collision gave a point that is carried away along the closing direction
   const carrySpeed = new Float64Array(n);
   const carryDir = new Float64Array(n * 3);
@@ -472,10 +520,11 @@ export function stepTectonics(t: TectonicState, dt: number): void {
     const dens = densityOf(thickness[i]!, age[i]!);
     // Velocity of this point: omega x p.
     const wix = omega[pi * 3]!, wiy = omega[pi * 3 + 1]!, wiz = omega[pi * 3 + 2]!;
-    const vix = wiy * pz - wiz * py, viy = wiz * px - wix * pz, viz = wix * py - wiy * px;
+    const vix = wiy * pz - wiz * py + vel[i * 3]!, viy = wiz * px - wix * pz + vel[i * 3 + 1]!, viz = wix * py - wiy * px + vel[i * 3 + 2]!;
 
     let collide = 0, arc = 0, rift = 0, ripple = 0, slip = 0;
-    let pushWeight = 0, pushSpeed = 0, pushX = 0, pushY = 0, pushZ = 0; // the strongest collision pushing on this point: how hard, how fast, which way
+    let pushWeight = 0, pushSpeed = 0, pushX = 0, pushY = 0, pushZ = 0;
+    let resistX = 0, resistY = 0, resistZ = 0; // this point's change of velocity from its borders // the strongest collision pushing on this point: how hard, how fast, which way
 
     // Well inside a plate nothing is near enough to interact with (every neighbour is skipped as the same plate).
     if (onlyPlateNear(grid, px, py, pz, pi)) {
@@ -500,7 +549,7 @@ export function stepTectonics(t: TectonicState, dt: number): void {
       tx /= tl; ty /= tl; tz /= tl;
 
       const wjx = omega[pj * 3]!, wjy = omega[pj * 3 + 1]!, wjz = omega[pj * 3 + 2]!;
-      const vjx = wjy * qz - wjz * qy, vjy = wjz * qx - wjx * qz, vjz = wjx * qy - wjy * qx;
+      const vjx = wjy * qz - wjz * qy + vel[j * 3]!, vjy = wjz * qx - wjx * qz + vel[j * 3 + 1]!, vjz = wjx * qy - wjy * qx + vel[j * 3 + 2]!;
       const rx = vix - vjx, ry = viy - vjy, rz = viz - vjz;
       const closing = rx * tx + ry * ty + rz * tz;
       // Tangential part of the relative velocity gives the along-fault shear.
@@ -515,6 +564,15 @@ export function stepTectonics(t: TectonicState, dt: number): void {
       const w = (f * f) / reachScale;
       const densJ = densityOf(thickness[j]!, age[j]!);
       const bothBuoyant = dens < BUOYANT_DENSITY && densJ < BUOYANT_DENSITY;
+      // The crust ahead resists a colliding point (it is pushed back, away from the other plate); where the plates open, the point is pulled
+      // away from the other plate. Either way the push is away from j, along -t, so a plate is squeezed at its front and stretched at its edge.
+      if (closing > 0 && bothBuoyant) {
+        const k = COLLISION_RESISTANCE * closing * w;
+        resistX -= k * tx; resistY -= k * ty; resistZ -= k * tz;
+      } else if (closing < 0) {
+        const k = OPENING_PULL * -closing * w;
+        resistX -= k * tx; resistY -= k * ty; resistZ -= k * tz;
+      }
 
       // Which side gives way where two plates overlap? Denser crust goes under. When both sides are buoyant
       // (a continental collision) density is too close to call and flips from cell to cell as the crust thickens,
@@ -580,6 +638,7 @@ export function stepTectonics(t: TectonicState, dt: number): void {
     // Weak crust (sediment, young belts) deforms readily; old cratons resist, so mountains rise at their margins, not through them.
     const weak = ROCKS[crust.rock[i]!]!.weakness * (1 + SCAR_WEAKENING * crust.scar[i]!);
     scarGain[i] = SCAR_RATE * dt * (slip + collide);
+    acc[i * 3] = resistX; acc[i * 3 + 1] = resistY; acc[i * 3 + 2] = resistZ;
     // Some of the collision's uplift is carried off along the way the plates are closing (see below); the rest stays where it is.
     const squeeze = dt * COLLISION_UPLIFT * collide * weak;
     const carried = pushWeight > 0 ? COLLISION_CARRIED_SHARE * squeeze : 0;
@@ -590,6 +649,9 @@ export function stepTectonics(t: TectonicState, dt: number): void {
     }
     delta[i] = delta[i]! + dt * ((ARC_UPLIFT * arc - RIFT_THINNING * rift) * weak + RIPPLE * ripple) + squeeze - carried;
   }
+
+  // The plate is not rigid: the borders change the velocity of the points at them, the change spreads through the plate, and it fades back.
+  deform(t, acc, grid, delta, dt);
 
   // Hotspots: plumes fixed in the mantle build volcanoes on whatever crust drifts over them.
   const plumes = t.hotspots.length / 3;
@@ -610,7 +672,8 @@ export function stepTectonics(t: TectonicState, dt: number): void {
 
   // Spread the consumed crust. Continental crust that is squeezed out piles into a broad belt on both sides of the collision;
   // the share of a slab that returns as magma builds a volcanic belt on the overriding plate.
-  const nearReach = Math.max(COLLISION_REACH_KM * COLLISION_SPREAD_SCALE[1] * COLLISION_FORWARD_STRETCH, ARC_REACH_KM * ARC_SPREAD_SCALE[1]) / EARTH_RADIUS_KM;
+  const nearReach = COLLISION_REACH_KM / EARTH_RADIUS_KM; // the usual reach; a longer one just looks in more cells
+  const sizeOf = (kind: number, radius: number): number => (kind === 1 ? radius * COLLISION_FORWARD_STRETCH : radius);
   const wide = buildGrid(pos, n, nearReach);
   for (let i = 0; i < n; i++) {
     const kind = deadKind[i]!;
@@ -634,17 +697,21 @@ export function stepTectonics(t: TectonicState, dt: number): void {
       const f = 1 - Math.sqrt(d2) / radius;
       return f * f;
     };
+    // Weigh everything in reach once, then hand the crust out.
+    const near: number[] = [], weights: number[] = [];
     let total = 0;
-    forEachNear(wide, px, py, pz, (k) => { total += weigh(k); });
-    if (total === 0) continue;
-    const mass = (kind === 1 ? 1 : ARC_RETURN) * thickness[i]!;
-    forEachNear(wide, px, py, pz, (k) => {
+    forEachWithin(wide, px, py, pz, sizeOf(kind, radius), (k) => {
       const w = weigh(k);
       if (w === 0) return;
-      const add = (mass * w) / total;
-      delta[k] = delta[k]! + add;
-      if (kind === 2 && add > 0.02) erupted[k] = 1;
+      near.push(k); weights.push(w); total += w;
     });
+    if (total === 0) continue;
+    const mass = (kind === 1 ? 1 : ARC_RETURN) * thickness[i]!;
+    for (let m = 0; m < near.length; m++) {
+      const add = (mass * weights[m]!) / total;
+      delta[near[m]!] = delta[near[m]!]! + add;
+      if (kind === 2 && add > 0.02) erupted[near[m]!] = 1;
+    }
   }
 
   // Carry the collision uplift ahead of and behind the border. Each point that was pushed up by a collision keeps part of it and hands the
@@ -662,13 +729,15 @@ export function stepTectonics(t: TectonicState, dt: number): void {
       const dx = pos[k * 3]! - px, dy = pos[k * 3 + 1]! - py, dz = pos[k * 3 + 2]! - pz;
       return pileWeight(dx, dy, dz, fx, fy, fz, radius, forward) * ROCKS[crust.rock[k]!]!.weakness;
     };
+    const near: number[] = [], weights: number[] = [];
     let total = 0;
-    forEachNear(wide, px, py, pz, (k) => { total += weigh(k); });
-    if (total === 0) { delta[i] = delta[i]! + gain; continue; } // nowhere to carry it: it stays
-    forEachNear(wide, px, py, pz, (k) => {
+    forEachWithin(wide, px, py, pz, forward, (k) => {
       const w = weigh(k);
-      if (w !== 0) delta[k] = delta[k]! + (gain * w) / total;
+      if (w === 0) return;
+      near.push(k); weights.push(w); total += w;
     });
+    if (total === 0) { delta[i] = delta[i]! + gain; continue; } // nowhere to carry it: it stays
+    for (let m = 0; m < near.length; m++) delta[near[m]!] = delta[near[m]!]! + (gain * weights[m]!) / total;
   }
 
   // Colliding continents lock together: relax the plates' angular velocities toward each other, weighted by size.
@@ -731,6 +800,7 @@ export function stepTectonics(t: TectonicState, dt: number): void {
       pos[out * 3 + 2] = pos[i * 3 + 2]!;
       plate[out] = plate[i]!;
       age[out] = age[i]!;
+      vel[out * 3] = vel[i * 3]!; vel[out * 3 + 1] = vel[i * 3 + 1]!; vel[out * 3 + 2] = vel[i * 3 + 2]!;
     }
     crust.scar[out] = Math.min(1, crust.scar[i]! * (1 - SCAR_DECAY * dt) + scarGain[i]!);
     // Rock changes as the plates work on it: squeezed crust turns metamorphic, and arc magma makes volcanic rock.
@@ -762,6 +832,66 @@ export function stepTectonics(t: TectonicState, dt: number): void {
   if (Math.round(t.time / dt) % 4 === 3) splitPlates(t);
   if (t.erosion) applyErosion(t, dt);
   t.time += dt;
+}
+
+/**
+ * Change the points' velocities from the borders' forces, let the change spread through each plate, and let it fade. Points of one plate
+ * within STIFFNESS_REACH spacings share it, so what happens at a border is felt further in, and a plate that is pushed at one place and
+ * not another is compressed, stretched or twisted instead of moving as one block.
+ */
+function deform(t: TectonicState, acc: Float64Array, grid: Grid, delta: Float64Array, dt: number): void {
+  const { crust, spacing } = t;
+  const n = crust.count;
+  const { pos, plate, vel, thickness } = crust;
+  for (let i = 0; i < n * 3; i++) vel[i] = vel[i]! + acc[i]! * dt;
+  // Only points that already have a deviation, or are being pushed, need to share it (the rest have none to give); a point that has none
+  // still takes some from an active neighbour, since each active point hands its share out to the others around it.
+  const active = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const m = vel[i * 3]! * vel[i * 3]! + vel[i * 3 + 1]! * vel[i * 3 + 1]! + vel[i * 3 + 2]! * vel[i * 3 + 2]!;
+    if (m > 1e-12) active[i] = 1;
+  }
+  const reach = STIFFNESS_REACH * spacing;
+  const reach2 = reach * reach;
+  const share = new Float64Array(n * 3);
+  const spread = new Float64Array(n); // how fast the area around each point is growing (negative: being squeezed), weighted
+  const spreadWeight = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    if (!active[i]) continue;
+    const px = pos[i * 3]!, py = pos[i * 3 + 1]!, pz = pos[i * 3 + 2]!;
+    forEachNear(grid, px, py, pz, (j) => {
+      if (j === i || plate[j] !== plate[i]) return;
+      if (active[j] && j < i) return; // the pair is handled from the lower point
+      const dx = pos[j * 3]! - px, dy = pos[j * 3 + 1]! - py, dz = pos[j * 3 + 2]! - pz;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 >= reach2) return;
+      const f = 1 - Math.sqrt(d2) / reach;
+      const k = STIFFNESS * f * dt;
+      let along = 0;
+      for (let a = 0; a < 3; a++) {
+        const diff = vel[j * 3 + a]! - vel[i * 3 + a]!;
+        share[i * 3 + a] = share[i * 3 + a]! + k * diff;
+        share[j * 3 + a] = share[j * 3 + a]! - k * diff;
+        along += diff * (pos[j * 3 + a]! - pos[i * 3 + a]!);
+      }
+      // The two points moving apart (positive) means the crust between them is stretching; together, being squeezed.
+      const rate = (along / d2) * f;
+      spread[i] = spread[i]! + rate; spread[j] = spread[j]! + rate;
+      spreadWeight[i] = spreadWeight[i]! + f; spreadWeight[j] = spreadWeight[j]! + f;
+    });
+  }
+  // Crust squeezed into less area thickens, and stretched crust thins.
+  for (let i = 0; i < n; i++) {
+    if (spreadWeight[i]! === 0) continue;
+    delta[i] = delta[i]! - AREA_TO_THICKNESS * (spread[i]! / spreadWeight[i]!) * thickness[i]! * dt;
+  }
+  const fade = Math.max(0, 1 - DEVIATION_FADE * dt);
+  for (let i = 0; i < n; i++) {
+    let x = (vel[i * 3]! + share[i * 3]!) * fade, y = (vel[i * 3 + 1]! + share[i * 3 + 1]!) * fade, z = (vel[i * 3 + 2]! + share[i * 3 + 2]!) * fade;
+    const m = Math.sqrt(x * x + y * y + z * z);
+    if (m > DEVIATION_MAX) { const c = DEVIATION_MAX / m; x *= c; y *= c; z *= c; }
+    vel[i * 3] = x; vel[i * 3 + 1] = y; vel[i * 3 + 2] = z;
+  }
 }
 
 /**
@@ -1056,11 +1186,13 @@ function fillHoles(t: TectonicState, quota: number): void {
       age[i] = crust.age[c.near]!;
       crust.rock[i] = crust.rock[c.near]!;
       crust.scar[i] = 0;
+      crust.vel[i * 3] = 0; crust.vel[i * 3 + 1] = 0; crust.vel[i * 3 + 2] = 0;
     } else {
       thickness[i] = OCEAN_FLOOR_THICKNESS;
       age[i] = 0;
       crust.rock[i] = ROCK.basalt; // new sea floor is basalt
       crust.scar[i] = 0;
+      crust.vel[i * 3] = 0; crust.vel[i * 3 + 1] = 0; crust.vel[i * 3 + 2] = 0;
     }
     made++;
   }
@@ -1145,6 +1277,7 @@ export interface Snapshot {
   readonly age: Float64Array;
   readonly rock: Uint8Array;
   readonly scar: Float64Array;
+  readonly vel: Float64Array;
   readonly omega: Float64Array;
   readonly omegaDrive: Float64Array;
 }
@@ -1161,6 +1294,7 @@ export function snapshot(t: TectonicState): Snapshot {
     age: c.age.slice(0, n),
     rock: c.rock.slice(0, n),
     scar: c.scar.slice(0, n),
+    vel: c.vel.slice(0, n * 3),
     omega: t.omega.slice(),
     omegaDrive: t.omegaDrive.slice(),
   };
@@ -1175,6 +1309,7 @@ export function restore(t: TectonicState, s: Snapshot): void {
   c.age.set(s.age);
   c.rock.set(s.rock);
   c.scar.set(s.scar);
+  c.vel.set(s.vel);
   t.omega = s.omega.slice();
   t.omegaDrive = s.omegaDrive.slice();
   t.time = s.time;
