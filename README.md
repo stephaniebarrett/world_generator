@@ -49,16 +49,16 @@ The `scripts/` folder holds helpers that drive the app in headless Chrome and sa
 ### Making a world
 
 1. In the **World** section, type a **Seed** and pick a **Simulation detail**. Start with Default (about 40,000 points) or Draft (about 10,000, fast). Fine and Ultra are slow and heavy.
-2. Click **New world** for an empty ocean, or choose a **Land style** and **Land cover** and click **Generate land**. You can also paint by hand with the tools below. Painting responsiveness depends on your detail settings.
+2. Click **New World** for an empty ocean, or choose a **Land style** and **Land cover** and click **Generate Land**. You can also paint by hand with the tools below. Painting responsiveness depends on your detail settings.
 3. Use the tool bar:
    - **Orbit** turns and zooms the globe.
-   - **Paint land** and **Paint ocean** paint crust. **Raise** and **Lower** thicken or thin it. Brush **Size** and **Strength** are in the **Brush** section.
-   - **Add plate:** press a spot and drag out an arrow for the new plate's direction and speed.
-   - **Remove plate:** click a plate. The **Brush** section sets whether its ground is reset to sea floor or kept.
-   - **Drag plate:** press on a plate and drag it somewhere else. Neighbours give way.
-   - **Paint plate:** press on a plate and drag to push its boundary into a neighbour.
+   - **Paint Ocean** and **Paint Land** paint crust. **Raise Terrain** and **Lower Terrain** thicken or thin it. Brush **Size** and **Strength** are in the **Brush** section.
+   - **Add Plate:** press a spot and drag out an arrow for the new plate's direction and speed.
+   - **Remove Plate:** click a plate. The **Brush** section sets whether its ground is reset to sea floor or kept.
+   - **Drag Plate:** press on a plate and drag it somewhere else. Neighbours give way.
+   - **Paint Plate:** press on a plate and drag to push its boundary into a neighbour.
    - **Undo** reverses the last edit.
-4. Set the planet in the **World** section: **Axial tilt**, **Spin** (like Earth or reversed) and **Sea level**. Click **Recompute climate** after changing them on a world that is already simulated. Releasing the sea-level slider does this for you.
+4. Set the planet in the **World** section: **Axial tilt**, **Spin** (like Earth or reversed) and **Sea level**. Click **Recompute Climate** after changing them on a world that is already simulated. Releasing the sea-level slider does this for you.
 
 ### Running the simulation
 
@@ -83,8 +83,8 @@ Hover over the globe to read latitude, longitude, height and, once climate exist
 
 In the **Save and export** section:
 
-- **Export map (PNG):** pick a **Map projection**, a **Map centre** (or use **Centre on current view**) and an **Image width**. The map shows the layer currently selected.
-- **Save world (JSON)** and **Open world (JSON)** keep a world as a file.
+- **Export Map (PNG):** pick a **Map projection**, a **Map centre** (or use **Centre on Current View**) and an **Image width**. The map shows the layer currently selected.
+- **Save World (JSON)** and **Open World (JSON)** keep a world as a file.
 - The current world is also saved automatically in your browser, and a link ending in `?seed=your-seed` opens that seed.
 
 ## Project layout

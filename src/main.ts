@@ -333,7 +333,7 @@ plateOutlinesToggle.addEventListener('change', updatePlateOutlines);
 let doomedLines: THREE.LineSegments | null = null;
 let doomedPlate = -1;
 
-/** Outlines one plate (red for Remove plate, yellow for Split plate) to show what a click would act on; -1 clears it. */
+/** Outlines one plate (red for Remove Plate, yellow for Split Plate) to show what a click would act on; -1 clears it. */
 function highlightPlate(id: number): void {
   if (id === doomedPlate) return;
   doomedPlate = id;
@@ -691,7 +691,7 @@ const ndc = new THREE.Vector2();
 let stroke: { dabs: number[]; last: THREE.Vector3 } | null = null;
 /** A plate tool's press-and-drag: from where it started to where the pointer is now. */
 let gesture: { kind: 'addPlate' | 'dragPlate'; from: THREE.Vector3; to: THREE.Vector3 } | null = null;
-/** A Paint plate stroke under way: the plate it started on, and a working copy of the plates so the stroke shows as you drag. */
+/** A Paint Plate stroke under way: the plate it started on, and a working copy of the plates so the stroke shows as you drag. */
 let plateStroke: { from: THREE.Vector3; id: number; dabs: number[]; last: THREE.Vector3; live: Int32Array } | null = null;
 
 function dabPlate(point: THREE.Vector3): void {

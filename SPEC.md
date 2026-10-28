@@ -42,7 +42,7 @@ A browser tool for building plausible, seed-reproducible planets for RPG and fan
 ## Simulation
 - Run is one-shot with a timeline scrubber. Default 200 My, 1 My steps, keyframe every 10 My; all adjustable per world.
 - An edit applies at the scrubbed time and replays forward from the nearest earlier keyframe; later keyframes are discarded.
-- Tectonics and erosion run every step. Climate is recomputed at each keyframe and reused between, plus a **Recompute climate** button for the scrubbed time (not an edit-log entry).
+- Tectonics and erosion run every step. Climate is recomputed at each keyframe and reused between, plus a **Recompute Climate** button for the scrubbed time (not an edit-log entry).
 - **Plate borders**: relative velocity is split into a part across the border (toward = convergent, away = divergent) and a part along it (transform). All three effects apply in proportion; the names label whichever part dominates.
   - Convergent: denser or older crust dives under (trench, volcanic arc); two thick buoyant sides collide and build mountains.
   - Divergent: rifting and thinning; new thin seafloor points fill the gap (rift valleys on land).
@@ -87,7 +87,7 @@ Scripts in `scripts/` drive the app in headless Chrome and save screenshots (the
   transform ripples; crust count held steady; worker-based run with keyframes and a scrubber.
 - Erosion (stream power, hillslope diffusion, sediment to sea or pits) on the lattice, in rock metres with isostasy.
 - Climate: temperature, winds, rain belts and rain shadows, 4 seasons (annual means shown), planet tilt and spin,
-  Recompute climate button. Rain belts fitted to Earth's zonal rainfall.
+  Recompute Climate button. Rain belts fitted to Earth's zonal rainfall.
 - Rivers and lakes; 14 Whittaker-style biomes.
 - Autosave (IndexedDB), `?seed=` links, JSON save/open with validation, PNG export in 9 projections.
 

@@ -131,16 +131,16 @@
       <h2>View</h2>
       <button data-tool="orbit" class="active">Orbit</button>
       <h2>Terrain</h2>
-      <button data-tool="land">Paint land</button>
-      <button data-tool="ocean">Paint ocean</button>
-      <button data-tool="raise">Raise</button>
-      <button data-tool="lower">Lower</button>
+      <button data-tool="ocean">Paint Ocean</button>
+      <button data-tool="land">Paint Land</button>
+      <button data-tool="raise">Raise Terrain</button>
+      <button data-tool="lower">Lower Terrain</button>
       <h2>Plates</h2>
-      <button data-tool="addPlate">Add plate</button>
-      <button data-tool="removePlate">Remove plate</button>
-      <button data-tool="splitPlate">Split plate</button>
-      <button data-tool="dragPlate">Drag plate</button>
-      <button data-tool="paintPlate">Paint plate</button>
+      <button data-tool="addPlate">Add Plate</button>
+      <button data-tool="removePlate">Remove Plate</button>
+      <button data-tool="splitPlate">Split Plate</button>
+      <button data-tool="dragPlate">Drag Plate</button>
+      <button data-tool="paintPlate">Paint Plate</button>
       <h2>Edit</h2>
       <button id="undo">Undo</button>
       <div id="hint">Drag to turn the globe, scroll to zoom.</div>
@@ -177,7 +177,7 @@
             <option value="20">Every 20 My</option>
           </select>
         </label>
-        <button id="regen">New world</button>
+        <button id="regen">New World</button>
       </section>
       <section>
         <h2>Land</h2>
@@ -192,7 +192,7 @@
         <label>Land cover <span id="coverReadout">30%</span>
           <input id="landCover" type="range" min="5" max="60" step="1" value="30" />
         </label>
-        <button id="generate" class="primary">Generate land</button>
+        <button id="generate" class="primary">Generate Land</button>
       </section>
       <section>
         <h2>Planet</h2>
@@ -208,7 +208,7 @@
         <label>Sea level <span id="seaReadout">0 m</span>
           <input id="seaLevel" type="range" min="-1000" max="2000" step="50" value="0" />
         </label>
-        <button id="recompute">Recompute climate</button>
+        <button id="recompute">Recompute Climate</button>
       </section>
       <section>
         <h2>Brush</h2>
@@ -259,7 +259,7 @@
             <input id="centreLon" type="number" min="-180" max="180" step="5" value="0" title="Longitude" />
           </span>
         </label>
-        <button id="centreFromView">Centre on current view</button>
+        <button id="centreFromView">Centre on Current View</button>
         <label>Image width
           <select id="mapWidth">
             <option value="1024">1024 px</option>
@@ -267,9 +267,9 @@
             <option value="4096">4096 px</option>
           </select>
         </label>
-        <button id="exportPng">Export map (PNG)</button>
-        <button id="saveWorld">Save world (JSON)</button>
-        <button id="openWorld">Open world (JSON)</button>
+        <button id="exportPng">Export Map (PNG)</button>
+        <button id="saveWorld">Save World (JSON)</button>
+        <button id="openWorld">Open World (JSON)</button>
         <input id="openFile" type="file" accept="application/json,.json" hidden />
       </section>
       <section>
