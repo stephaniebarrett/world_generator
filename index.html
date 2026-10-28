@@ -42,6 +42,7 @@
       button:hover:not(:disabled) { background: #2d3b50; border-color: var(--accent); }
       button:active:not(:disabled) { background: #26334a; }
       button:disabled { opacity: 0.45; cursor: default; }
+      [hidden] { display: none !important; }
       button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
       button.primary:hover:not(:disabled) { background: #7bbcff; border-color: #7bbcff; }
       :is(input, select, button, h2[role="button"]):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -57,9 +58,10 @@
       #tools { top: 0; left: 0; bottom: var(--timeline-height, 66px); width: 148px; padding: 8px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; border-width: 0 1px 0 0; border-radius: 0; }
       #tools h2 { padding: 10px 4px 4px; }
       #tools h2:first-child { padding-top: 2px; }
-      #tools button { text-align: left; background: transparent; border-color: transparent; min-height: 30px; }
-      #tools button:hover:not(:disabled) { background: var(--hover); border-color: transparent; }
-      #tools button.active { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+      #tools button { min-height: 30px; text-align: left; background: transparent; border-color: transparent; }
+      #tools button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); border-color: transparent; color: #fff; }
+      #tools button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+      #tools button.active:hover:not(:disabled) { background: #7bbcff; border-color: #7bbcff; color: var(--accent-text); }
       #tools #undo { margin-top: 2px; border-color: var(--border); }
       #hint { color: var(--muted); font-size: var(--font-small); line-height: 1.4; margin-top: 10px; padding: 8px; border-top: 1px solid var(--border); }
 
@@ -195,7 +197,8 @@
       <section>
         <h2>Brush</h2>
         <label>Size <span id="sizeReadout"></span> <input id="radius" type="range" min="0.03" max="0.6" step="0.01" value="0.2" /></label>
-        <label>Strength <input id="strength" type="range" min="0.05" max="1" step="0.05" value="0.4" /></label>
+        <label>Strength <span id="strengthReadout"></span> <input id="strength" type="range" min="0.05" max="1" step="0.05" value="0.4" /></label>
+        <div id="brushNone" class="hintline" hidden>This tool has no brush settings.</div>
         <label>When removing a plate
           <select id="removeMode">
             <option value="reset" selected>Reset its ground to seafloor</option>

@@ -37,6 +37,7 @@ const windToggle = $<HTMLInputElement>('winds');
 const removeModeSelect = $<HTMLSelectElement>('removeMode');
 const hint = $<HTMLDivElement>('hint');
 const strengthInput = $<HTMLInputElement>('strength');
+const strengthReadout = $<HTMLSpanElement>('strengthReadout');
 const landStyleSelect = $<HTMLSelectElement>('landStyle');
 const landCoverInput = $<HTMLInputElement>('landCover');
 const coverReadout = $<HTMLSpanElement>('coverReadout');
@@ -967,6 +968,30 @@ canvas.addEventListener('pointerleave', () => {
   updateBrushRing();
 });
 radiusInput.addEventListener('input', updateBrushSize);
+
+/** Strength means a share of the way to the target for the paint tools, and kilometres of crust for raise and lower. */
+function updateStrengthReadout(): void {
+  const value = Number(strengthInput.value);
+  const mode = toolMode();
+  if (mode === 'raise' || mode === 'lower') strengthReadout.textContent = `${value.toFixed(2)} km per step`;
+  else if (mode) strengthReadout.textContent = `${Math.min(100, Math.round(value * 150))}% per step`;
+  else strengthReadout.textContent = '';
+}
+/** Like a tool options bar: each tool shows only the brush settings it uses. */
+const SIZE_TOOLS = new Set(['land', 'ocean', 'raise', 'lower', 'addPlate', 'paintPlate']);
+const STRENGTH_TOOLS = new Set(['land', 'ocean', 'raise', 'lower']);
+function showBrushSettings(): void {
+  const row = (input: HTMLElement) => input.closest('label')!;
+  row(radiusInput).hidden = !SIZE_TOOLS.has(tool);
+  row(strengthInput).hidden = !STRENGTH_TOOLS.has(tool);
+  row(removeModeSelect).hidden = tool !== 'removePlate';
+  $<HTMLDivElement>('brushNone').hidden = SIZE_TOOLS.has(tool) || tool === 'removePlate';
+}
+for (const b of toolButtons) b.addEventListener('click', showBrushSettings);
+showBrushSettings();
+strengthInput.addEventListener('input', updateStrengthReadout);
+for (const b of toolButtons) b.addEventListener('click', updateStrengthReadout);
+updateStrengthReadout();
 for (const b of toolButtons) b.addEventListener('click', updateBrushRing);
 updateBrushSize();
 
