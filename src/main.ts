@@ -53,7 +53,8 @@ const guideTropics = $<HTMLInputElement>('guideTropics');
 const guidePolar = $<HTMLInputElement>('guidePolar');
 const simulateButton = $<HTMLButtonElement>('simulate');
 const scrub = $<HTMLInputElement>('scrub');
-const timeReadout = $<HTMLDivElement>('timeReadout');
+const timePosition = $<HTMLSpanElement>('timePosition');
+const timeStatus = $<HTMLSpanElement>('timeStatus');
 const keyframeSelect = $<HTMLSelectElement>('keyframe');
 const ticks = $<HTMLDivElement>('ticks');
 const tiltInput = $<HTMLInputElement>('tilt');
@@ -151,6 +152,8 @@ function startWorld(next: Recipe): void {
 
   rebuildView();
   clearSimulation();
+  simulationOutdated = false; // a different world, not an edit of the one that was simulated
+  refreshTimeline();
   refreshInfo();
   ensureClimateForLayer();
 }
@@ -524,9 +527,17 @@ function refreshTimeline(): void {
   // The bar behind the ticks fills with every 1 My plate step of a running simulation.
   runBar.style.visibility = worker ? 'visible' : 'hidden';
   runBarFill.style.width = `${(100 * progress.time) / DEFAULT_RUN.totalMy}%`;
-  timeReadout.textContent = worker
-    ? `running… t = ${progress.time} / ${DEFAULT_RUN.totalMy} My${progress.keyframe ? ' (saving keyframe)' : ''}`
-    : `t = ${frame?.time ?? 0} My`;
+  // Where the timeline is (fixed width, so the status beside it stays put) and what the simulation is doing.
+  timePosition.textContent = `${worker ? progress.time : (frame?.time ?? 0)} of ${DEFAULT_RUN.totalMy} million years`;
+  const finished = frames.length > 0 && frames[frames.length - 1]!.time >= DEFAULT_RUN.totalMy;
+  const [state, text] = worker
+    ? ['running', progress.keyframe ? 'Running… saving keyframe' : 'Running…']
+    : finished ? ['complete', 'Simulation complete']
+    : frames.length > 0 ? ['stopped', 'Stopped before the end']
+    : simulationOutdated ? ['outdated', 'World edited: simulate again to see the changes']
+    : ['idle', 'Not simulated yet'];
+  timeStatus.dataset.state = state;
+  timeStatus.textContent = text;
   simulateButton.textContent = worker ? 'Stop' : 'Simulate';
 }
 
@@ -553,7 +564,11 @@ function keyframeTimes(spacing: number): number[] {
 }
 
 /** Throw away simulation results (any edit makes them stale) and stop a running simulation. */
+/** True once a simulation has been thrown away by an edit, until the next run starts or a different world is loaded. */
+let simulationOutdated = false;
+
 function clearSimulation(): void {
+  if (worker || frames.length > 0) simulationOutdated = true;
   worker?.terminate();
   worker = null;
   frames = [];
@@ -572,6 +587,7 @@ simulateButton.addEventListener('click', () => {
     return;
   }
   clearSimulation();
+  simulationOutdated = false;
   const params: RunParams = { seed: recipe.seed, frequency: recipe.frequency, edits: recipe.edits, climate: climateParams(), ...DEFAULT_RUN, keyframeMy: keyframeSpacing() };
   runSpacing = keyframeSpacing();
   progress = { time: 0, keyframe: true };
@@ -633,10 +649,10 @@ const openSection = setupSidePanel(document.querySelector<HTMLElement>('#side')!
 
 const epochLabel = document.querySelector<HTMLElement>('#epoch')!;
 
-/** Name the moment on screen: the start of the world, or how far into the simulation the drawn frame is. */
+/** Name the moment on screen: how many million years into the simulation the drawn frame is. */
 function updateEpoch(): void {
   const time = frames[frameIndex]?.time ?? 0;
-  epochLabel.innerHTML = time === 0 ? 'Start <small>0 My</small>' : `${time} My <small>into the simulation</small>`;
+  epochLabel.innerHTML = `<span class="full">${time} million years</span><span class="abbr">${time} My</span>`;
 }
 
 function recolor(withRivers = true): void {
@@ -1079,9 +1095,13 @@ function resize(): void {
   const { clientWidth: w, clientHeight: h } = canvas;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
+  // The canvas fills the window under the docked panels, so shift the view to centre the globe in the space between them.
+  const shift = ((document.getElementById('tools')?.offsetWidth ?? 0) - (document.getElementById('side')?.offsetWidth ?? 0)) / 2;
+  camera.setViewOffset(w, h, -shift, 0, w, h);
   camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize);
+for (const id of ['tools', 'side']) new ResizeObserver(resize).observe(document.getElementById(id)!);
 resize();
 
 // --- saving, exporting and starting up --------------------------------------
