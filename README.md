@@ -48,7 +48,7 @@ The `scripts/` folder holds helpers that drive the app in headless Chrome and sa
 
 ### Making a world
 
-1. In the **World** section, type a **Seed** and pick a **Simulation detail**. Start with Default (about 40,000 points) or Draft (about 10,000, fast). Fine and Ultra are slow and heavy.
+1. In the **World** section, type a **Seed** and pick a **Simulation detail**. Start with Medium (about 40,000 points) or Low (about 10,000, fast). Very high and Ultra are slow and heavy.
 2. Click **New World** for an empty ocean, or choose a **Land style** and **Land cover** and click **Generate Land**. You can also paint by hand with the tools below. Painting responsiveness depends on your detail settings.
 3. Use the tool bar:
    - **Orbit** turns and zooms the globe.
@@ -66,7 +66,7 @@ The `scripts/` folder holds helpers that drive the app in headless Chrome and sa
 2. Click **Simulate**. A bar behind the timeline ticks fills with each 1 My step, the status line shows the time reached, and each keyframe lights up its tick as it is saved. Click **Stop** to halt the run. Everything saved so far stays and can still be viewed.
 3. Drag the timeline slider to look at any saved keyframe. Times that have not been simulated yet cannot be selected.
 
-Editing the world clears the simulation, so run it again to see an edit's effect. Higher detail levels take much longer: a 200 My run takes roughly half a minute at Default and several minutes at Detailed.
+Editing the world clears the simulation, so run it again to see an edit's effect. Higher detail levels take much longer: a 200 My run takes roughly half a minute at Medium and several minutes at High.
 
 ### Looking at the result
 

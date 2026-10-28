@@ -84,6 +84,10 @@
       #side select, #side input { min-width: 0; max-width: 100%; }
       #side .sectionBody { display: grid; gap: 10px; padding: 12px; }
       #side section.folded .sectionBody { display: none; }
+      /* Longer explanatory notes only show when the panel is wide enough */
+      #side .sectionBody { container-type: inline-size; }
+      .hintline .more { display: none; }
+      @container (min-width: 250px) { .hintline .more { display: inline; } }
       #side h2 { position: sticky; top: 0; z-index: 2; height: 26px; padding: 0 12px 0 6px; background: var(--pane-head); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 4px; }
       #side section.folded h2 { border-bottom: 0; }
       #side h2[role="button"] { cursor: pointer; user-select: none; }
@@ -150,13 +154,13 @@
       <section>
         <h2>World</h2>
         <label>Seed <input id="seed" value="first-world" /></label>
-        <label>Simulation detail <span class="hintline">sets how finely the world is simulated</span>
+        <label>Simulation detail <span class="hintline">sets how finely the world is simulated<span class="more">; higher levels are slower</span></span>
           <select id="detail">
-            <option value="draft">Draft (~10k points)</option>
-            <option value="default" selected>Default (~40k points)</option>
-            <option value="detailed">Detailed (~160k points)</option>
-            <option value="fine">Fine (~320k points, slow)</option>
-            <option value="ultra">Ultra (~580k points, very slow)</option>
+            <option value="draft">Low (~10k points)</option>
+            <option value="default" selected>Medium (~40k points)</option>
+            <option value="detailed">High (~160k points)</option>
+            <option value="fine">Very high (~320k points)</option>
+            <option value="ultra">Ultra (~580k points)</option>
           </select>
         </label>
         <label>Render detail <span class="hintline">sets how finely it is drawn</span>
@@ -169,7 +173,7 @@
             <option value="ultra">Ultra (~580k cells, heavy)</option>
           </select>
         </label>
-        <label>Keyframe spacing <span class="hintline">how often a run is saved to the timeline; wider spacing runs faster</span>
+        <label>Keyframe spacing <span class="hintline">how often a run is saved to the timeline<span class="more">; wider spacing runs faster</span></span>
           <select id="keyframe">
             <option value="5">Every 5 My</option>
             <option value="10" selected>Every 10 My</option>
