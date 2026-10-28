@@ -6,6 +6,8 @@
 // kept whole, and the rock at every point is worked out from the land and the plates.
 
 import { assignGeology } from './geology';
+import { DEFAULT_EROSION, erodeThickness } from './erosion';
+import { ROCKS } from './crust';
 import type { Lattice } from './lattice';
 import { applyGenerate } from './landgen';
 import { PlateEditor, type Prepared } from './plateEdits';
@@ -26,7 +28,7 @@ export function prepareWorld(recipe: Recipe, lattice: Lattice): PreparedWorld {
   for (const edit of recipe.edits) {
     if (edit.kind === 'brush') applyBrush(editor.state, edit);
     else if (edit.kind === 'generate') applyGenerate(editor.state, edit, editor.plateOf, editor.plates);
-    else editor.apply(edit);
+    else if (edit.kind !== 'erode') editor.apply(edit);
   }
   const raw: WorldState = { lattice, thickness: Float64Array.from(editor.state.thickness) };
   const world = addRoughness(editor.state, recipe.seed);
@@ -34,5 +36,14 @@ export function prepareWorld(recipe: Recipe, lattice: Lattice): PreparedWorld {
   const plateOf = Int32Array.from(editor.plateOf);
   keepLandmassesWhole(world, plateOf);
   const plates = [...editor.plates];
-  return { world, setup: { plateOf, plates }, raw, rock: assignGeology(lattice, world.thickness, plateOf, plates, recipe.seed) };
+  let rock = assignGeology(lattice, world.thickness, plateOf, plates, recipe.seed);
+  // Hand-applied erosion before the run wears the finished relief; fresh relief wears faster than the long-run rate (as in terrain.ts).
+  const erosions = recipe.edits.filter((e) => e.kind === 'erode' && e.time === 0);
+  if (erosions.length > 0) {
+    const erodibility = Float64Array.from(rock, (r) => ROCKS[r]!.erodibility);
+    for (const e of erosions) if (e.kind === 'erode') erodeThickness(lattice, world.thickness, e.my, { ...DEFAULT_EROSION, incision: 45000 }, erodibility);
+    fillLoneWater(lattice, world.thickness);
+    rock = assignGeology(lattice, world.thickness, plateOf, plates, recipe.seed);
+  }
+  return { world, setup: { plateOf, plates }, raw, rock };
 }

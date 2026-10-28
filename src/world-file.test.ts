@@ -62,6 +62,7 @@ describe('world file', () => {
       { kind: 'dragPlate', from: [0, 0, 1], to: [1, 0, 0], time: 0 },
       { kind: 'paintPlate', from: [1, 0, 0], radius: 0.1, dabs: [1, 0, 0, 0, 1, 0], time: 0 },
       { kind: 'splitPlate', at: [0, 1, 0], time: 0 },
+      { kind: 'erode', my: 10, time: 30 },
     ] as const;
     const file = toWorldFile({ ...recipe, edits: [...edits] }, DEFAULT_PLANET);
     expect(parseWorld(serializeWorld(file))).toEqual(file);
@@ -74,6 +75,7 @@ describe('world file', () => {
     expect(() => parseWorld(bad({ ...edits[2], to: 'x' }))).toThrow(/to must be three numbers/);
     expect(() => parseWorld(bad({ ...edits[3], dabs: [1, 2] }))).toThrow(/dabs must be/);
     expect(() => parseWorld(bad({ ...edits[3], radius: 9 }))).toThrow(/radius/);
+    expect(() => parseWorld(bad({ kind: 'erode', my: -1, time: 0 }))).toThrow(/my out of range/);
     expect(() => parseWorld(bad({ kind: 'nuke', time: 0 }))).toThrow(/unknown kind/);
   });
 });

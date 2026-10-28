@@ -61,6 +61,11 @@ function parseEdit(raw: unknown, index: number): Edit {
     if (e.mode !== 'reset' && e.mode !== 'keep') return fail(`unknown mode ${String(e.mode)}`);
     return { kind: 'removePlate', at: parseUnit(e.at, 'at', fail), mode: e.mode, time: e.time };
   }
+  if (e.kind === 'erode') {
+    if (!isFinite_(e.my) || e.my <= 0 || e.my > 200) return fail('my out of range');
+    if (e.time < 0) return fail('time out of range');
+    return { kind: 'erode', my: e.my, time: e.time };
+  }
   if (e.kind === 'splitPlate') return { kind: 'splitPlate', at: parseUnit(e.at, 'at', fail), time: e.time };
   if (e.kind === 'generate') {
     const styles = ['continents', 'pangaea', 'two', 'archipelago'] as const;

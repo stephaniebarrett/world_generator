@@ -102,7 +102,17 @@ export interface GenerateEdit {
   readonly time: number;
 }
 
-export type Edit = BrushEdit | GenerateEdit | PlateEdit;
+/**
+ * Extra erosion by hand: `my` million years of it at the normal rates. At `time` 0 it wears the starting world
+ * before the simulation; at a later `time` the simulation applies it when it reaches that moment.
+ */
+export interface ErodeEdit {
+  readonly kind: 'erode';
+  readonly my: number;
+  readonly time: number;
+}
+
+export type Edit = BrushEdit | GenerateEdit | PlateEdit | ErodeEdit;
 
 export const isPlateEdit = (e: Edit): e is PlateEdit =>
   e.kind === 'addPlate' || e.kind === 'removePlate' || e.kind === 'splitPlate' || e.kind === 'dragPlate' || e.kind === 'paintPlate';

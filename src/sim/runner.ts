@@ -6,7 +6,7 @@ import { buildLattice } from './lattice';
 import { thermalThickness } from './crust';
 import { fillLoneWater } from './pits';
 import { prepareWorld } from './setup';
-import { createTectonics, resample, stepTectonics } from './tectonics';
+import { createTectonics, erodeCrust, resample, stepTectonics } from './tectonics';
 import { computeWater } from './water';
 import { SIM_VERSION, elevationFromThickness, type Edit } from './world';
 
@@ -111,6 +111,8 @@ export async function runSimulation(params: RunParams, onFrame: (frame: Frame) =
   const steps = Math.round(params.totalMy / params.stepMy);
   for (let s = 1; s <= steps; s++) {
     stepTectonics(tectonics, params.stepMy);
+    // Hand-applied erosion at this moment, before the frame is saved.
+    for (const e of params.edits) if (e.kind === 'erode' && e.time > 0 && Math.round(e.time) === Math.round(tectonics.time)) erodeCrust(tectonics, e.my);
     onProgress?.(tectonics.time, false);
     if (s % stepsPerKeyframe === 0 || s === steps) await emit(false);
     else await host.yield();

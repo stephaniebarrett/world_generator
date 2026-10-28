@@ -10,7 +10,7 @@
 
 import type { Lattice } from './lattice';
 import { cellKm } from './climate';
-import { METRES_PER_KM, elevationFromThickness } from './crust';
+import { MAX_THICKNESS, METRES_PER_KM, MIN_THICKNESS, elevationFromThickness } from './crust';
 
 const EARTH_RADIUS_KM = 6371;
 /**
@@ -199,4 +199,20 @@ export function erosionDelta(
   const delta = new Float64Array(n);
   for (let v = 0; v < n; v++) delta[v] = change[v]! / 1000; // rock metres to km of crust
   return delta;
+}
+
+/** Erode a thickness field in place for `my` million years, in 1 My steps. */
+export function erodeThickness(
+  lattice: Lattice,
+  thickness: Float64Array,
+  my: number,
+  params: ErosionParams = DEFAULT_EROSION,
+  erodibility?: ArrayLike<number>,
+  precipitation?: ArrayLike<number>,
+): void {
+  const steps = Math.max(1, Math.round(my));
+  for (let i = 0; i < steps; i++) {
+    const delta = erosionDelta(lattice, thickness, my / steps, params, erodibility, precipitation);
+    for (let v = 0; v < thickness.length; v++) thickness[v] = Math.min(MAX_THICKNESS, Math.max(MIN_THICKNESS, thickness[v]! + delta[v]!));
+  }
 }

@@ -35,6 +35,18 @@ describe('runSimulation', () => {
     expect(Array.from(first)).not.toEqual(Array.from(last)); // tectonics moved things
   });
 
+  it('applies hand-made erosion when the run reaches its moment, leaving earlier frames alone', async () => {
+    const eroded: Frame[] = [];
+    await runSimulation({ ...params, edits: [land, { kind: 'erode', my: 10, time: 10 }] }, (f) => eroded.push(f));
+    const plain = await collect();
+    expect(Array.from(eroded[0]!.thickness)).toEqual(Array.from(plain[0]!.thickness)); // before it
+    expect(Array.from(eroded[1]!.thickness)).not.toEqual(Array.from(plain[1]!.thickness)); // at it
+    expect(Math.max(...eroded[1]!.thickness)).toBeLessThan(Math.max(...plain[1]!.thickness)); // peaks are lower
+    const again: Frame[] = [];
+    await runSimulation({ ...params, edits: [land, { kind: 'erode', my: 10, time: 10 }] }, (f) => again.push(f));
+    expect(Array.from(again[2]!.thickness)).toEqual(Array.from(eroded[2]!.thickness)); // and deterministic
+  });
+
   it('measures height from the chosen sea level: a hill is warmer when the sea is higher', () => {
     const l = buildLattice(params.frequency);
     const thickness = new Float32Array(l.vertexCount).fill(7);

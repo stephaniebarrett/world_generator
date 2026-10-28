@@ -7,6 +7,8 @@ import { buildCellEdges, buildCellGeometry, surfaceRadius, updateCellColors, upd
 import { colorsFromRock, colorsFromBiomes, colorsFromPlates, colorsFromRainfall, colorsFromTemperature, colorsFromThickness } from './view/colors';
 import { prepareWorld, type PreparedWorld } from './sim/setup';
 import { ROCKS } from './sim/crust';
+import { DEFAULT_EROSION, erodeThickness } from './sim/erosion';
+import { fillLoneWater } from './sim/pits';
 import { BIOMES } from './sim/biomes';
 import { DEFAULT_RUN, type ClimateAndWater, type Frame, type RunParams } from './sim/runner';
 import type { WorkerMessage, WorkerRequest } from './sim/worker';
@@ -64,6 +66,7 @@ const seaInput = $<HTMLInputElement>('seaLevel');
 const seaReadout = $<HTMLSpanElement>('seaReadout');
 const seaLevel = (): number => Number(seaInput.value);
 const recomputeButton = $<HTMLButtonElement>('recompute');
+const erodeButton = $<HTMLButtonElement>('erode');
 const projectionSelect = $<HTMLSelectElement>('projection');
 const centreLat = $<HTMLInputElement>('centreLat');
 const centreLon = $<HTMLInputElement>('centreLon');
@@ -218,7 +221,12 @@ function climateParams(): ClimateParams {
 }
 
 /** Ask the helper worker for the climate of a thickness field; the callback only fires for the newest request. */
-function requestClimate(thickness: Float32Array, rock: Uint8Array | undefined, done: (c: ClimateAndWater) => void): void {
+let climateSettled: (() => void) | undefined;
+
+function requestClimate(thickness: Float32Array, rock: Uint8Array | undefined, done: (c: ClimateAndWater) => void, settled?: () => void): void {
+  // A newer request makes the one still waiting irrelevant; tell its owner so a busy indicator does not stay on.
+  climateSettled?.();
+  climateSettled = settled;
   climateWorker ??= new Worker(new URL('./sim/worker.ts', import.meta.url), { type: 'module' });
   const id = ++climateRequest;
   const handler = (e: MessageEvent<WorkerMessage>) => {
@@ -227,7 +235,9 @@ function requestClimate(thickness: Float32Array, rock: Uint8Array | undefined, d
     climateWorker?.removeEventListener('message', handler);
     if (id === climateRequest) {
       const { temperature, precipitation, flowTo, discharge, lake } = msg;
+      climateSettled = undefined;
       done({ temperature, precipitation, flowTo, discharge, lake });
+      settled?.();
     }
   };
   climateWorker.addEventListener('message', handler);
@@ -468,22 +478,88 @@ function ensureClimateForLayer(): void {
   }, 500);
 }
 
-recomputeButton.addEventListener('click', () => {
+let erodeBusy = false;
+const EROSION_MY = 10;
+
+/** Apply another spell of erosion: to the starting world before a run, or to the keyframe on show. */
+erodeButton.addEventListener('click', () => {
+  if (erodeBusy || worker) return;
+  erodeBusy = true;
+  erodeButton.disabled = true;
+  erodeButton.setAttribute('aria-busy', 'true');
+  erodeButton.textContent = 'Eroding…';
+  // The work runs on this thread, so let the busy label paint before it starts.
+  requestAnimationFrame(() => setTimeout(() => {
+    let climateToo = false;
+    try {
+      const frame = frames[frameIndex];
+      if (!frame || frame.time === 0) {
+        clearSimulation();
+        recipe = { ...recipe, edits: [...recipe.edits, { kind: 'erode', my: EROSION_MY, time: 0 }] };
+        refreshPrepared();
+      } else {
+        // The edit is replayed by the simulation when it reaches this moment; here the frame on show is eroded to match.
+        recipe = { ...recipe, edits: [...recipe.edits, { kind: 'erode', my: EROSION_MY, time: frame.time }] };
+        const thickness = Float64Array.from(frame.thickness);
+        const erodibility = Float64Array.from(frame.rock, (r) => ROCKS[r]!.erodibility);
+        erodeThickness(lattice, thickness, EROSION_MY, DEFAULT_EROSION, erodibility, frame.precipitation);
+        fillLoneWater(lattice, thickness);
+        frames[frameIndex] = { ...frame, thickness: Float32Array.from(thickness) };
+        erodedFrom = erodedFrom === null ? frame.time : Math.min(erodedFrom, frame.time);
+        applyHeights(true);
+        recolor();
+        climateToo = true;
+      }
+      scheduleSave();
+    } finally {
+      erodeBusy = false;
+      erodeButton.removeAttribute('aria-busy');
+      erodeButton.textContent = 'Apply Erosion';
+      refreshTimeline();
+    }
+    if (climateToo) recomputeClimate(); // the rivers and rain follow the new relief
+  }, 0));
+});
+
+let recomputing = false;
+let recomputeAgain = false;
+
+/** Work the climate out again for the frame on show; one run at a time, with the button showing it is busy. */
+function recomputeClimate(): void {
+  if (recomputing) {
+    recomputeAgain = true;
+    return;
+  }
+  recomputing = true;
+  recomputeButton.disabled = true;
+  recomputeButton.setAttribute('aria-busy', 'true');
+  recomputeButton.textContent = 'Recomputing…';
+  const settled = () => {
+    recomputing = false;
+    recomputeButton.disabled = false;
+    recomputeButton.removeAttribute('aria-busy');
+    recomputeButton.textContent = 'Recompute Climate';
+    if (recomputeAgain) {
+      recomputeAgain = false;
+      recomputeClimate();
+    }
+  };
   const frame = frames[frameIndex];
   if (frame) {
     const index = frameIndex;
     requestClimate(Float32Array.from(frame.thickness), frame.rock, (c) => {
       frames[index] = { ...frame, ...c };
       recolor();
-    });
+    }, settled);
   } else {
     staticClimate = null;
     requestClimate(Float32Array.from(viewThickness()), prepared?.rock, (c) => {
       staticClimate = c;
       recolor();
-    });
+    }, settled);
   }
-});
+}
+recomputeButton.addEventListener('click', recomputeClimate);
 
 tiltInput.addEventListener('input', () => {
   tiltReadout.textContent = `${tiltInput.value}°`;
@@ -502,7 +578,7 @@ seaInput.addEventListener('input', () => {
   scheduleSave();
 });
 // The climate and rivers follow the sea, so they are worked out again once the slider is let go.
-seaInput.addEventListener('change', () => $<HTMLButtonElement>('recompute').click());
+seaInput.addEventListener('change', recomputeClimate);
 
 function refreshTimeline(): void {
   const frame = frames[frameIndex];
@@ -532,6 +608,7 @@ function refreshTimeline(): void {
   const finished = frames.length > 0 && frames[frames.length - 1]!.time >= DEFAULT_RUN.totalMy;
   const [state, text] = worker
     ? ['running', progress.keyframe ? 'Running… saving keyframe' : 'Running…']
+    : erodedFrom !== null ? ['outdated', `Eroded at ${erodedFrom} million years: simulate again to update what follows`]
     : finished ? ['complete', 'Simulation complete']
     : frames.length > 0 ? ['stopped', 'Stopped before the end']
     : simulationOutdated ? ['outdated', 'World edited: simulate again to see the changes']
@@ -539,6 +616,7 @@ function refreshTimeline(): void {
   timeStatus.dataset.state = state;
   timeStatus.textContent = text;
   simulateButton.textContent = worker ? 'Stop' : 'Simulate';
+  erodeButton.disabled = worker !== null || erodeBusy;
 }
 
 const runBar = document.querySelector<HTMLElement>('#runBar')!;
@@ -567,8 +645,12 @@ function keyframeTimes(spacing: number): number[] {
 /** True once a simulation has been thrown away by an edit, until the next run starts or a different world is loaded. */
 let simulationOutdated = false;
 
+/** The time of the earliest keyframe that was eroded by hand: later keyframes are out of date, earlier ones still hold. */
+let erodedFrom: number | null = null;
+
 function clearSimulation(): void {
   if (worker || frames.length > 0) simulationOutdated = true;
+  erodedFrom = null;
   worker?.terminate();
   worker = null;
   frames = [];
@@ -586,7 +668,12 @@ simulateButton.addEventListener('click', () => {
     refreshTimeline();
     return;
   }
+  // After hand-applied erosion at a keyframe, everything before it is unchanged, so those frames stay.
+  const from = erodedFrom;
+  const kept = from !== null && runSpacing === keyframeSpacing() ? frames.filter((f) => f.time < from) : [];
   clearSimulation();
+  frames = kept;
+  frameIndex = Math.min(frameIndex, Math.max(0, kept.length - 1));
   simulationOutdated = false;
   const params: RunParams = { seed: recipe.seed, frequency: recipe.frequency, edits: recipe.edits, climate: climateParams(), ...DEFAULT_RUN, keyframeMy: keyframeSpacing() };
   runSpacing = keyframeSpacing();
@@ -600,6 +687,7 @@ simulateButton.addEventListener('click', () => {
       return;
     }
     if (msg.type === 'frame') {
+      if (kept.length > 0 && msg.frame.time <= kept[kept.length - 1]!.time) return; // already held, and identical
       frames.push(msg.frame);
       if (follow) frameIndex = frames.length - 1;
       recolor();
@@ -1055,18 +1143,31 @@ landStyleSelect.addEventListener('change', () => {
 
 // Generate land: adds continents that suit the plates as they are now. Each click makes a new layout.
 generateButton.addEventListener('click', () => {
-  clearSimulation();
-  const earlier = recipe.edits.filter((e) => e.kind === 'generate').length;
-  const edit: GenerateEdit = {
-    kind: 'generate',
-    style: landStyleSelect.value as GenerateEdit['style'],
-    landFraction: Number(landCoverInput.value) / 100,
-    seed: `${recipe.seed}#${earlier}`,
-    time: 0,
-  };
-  recipe = { ...recipe, edits: [...recipe.edits, edit] };
-  refreshPrepared();
-  scheduleSave();
+  if (generateButton.disabled) return;
+  // The work runs on this thread, so let the busy label paint before it starts.
+  generateButton.disabled = true;
+  generateButton.setAttribute('aria-busy', 'true');
+  generateButton.textContent = 'Generating…';
+  requestAnimationFrame(() => setTimeout(() => {
+    try {
+      clearSimulation();
+      const earlier = recipe.edits.filter((e) => e.kind === 'generate').length;
+      const edit: GenerateEdit = {
+        kind: 'generate',
+        style: landStyleSelect.value as GenerateEdit['style'],
+        landFraction: Number(landCoverInput.value) / 100,
+        seed: `${recipe.seed}#${earlier}`,
+        time: 0,
+      };
+      recipe = { ...recipe, edits: [...recipe.edits, edit] };
+      refreshPrepared();
+      scheduleSave();
+    } finally {
+      generateButton.disabled = false;
+      generateButton.removeAttribute('aria-busy');
+      generateButton.textContent = 'Generate Land';
+    }
+  }, 0));
 });
 
 // Simulation detail changes how finely the world is computed: the same seed and edits are replayed on the new lattice.

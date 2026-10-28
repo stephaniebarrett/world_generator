@@ -998,6 +998,12 @@ function applyErosion(t: TectonicState, dt: number): void {
   }
 }
 
+/** Extra erosion at the current moment, `my` million years of it in 1 My steps. */
+export function erodeCrust(t: TectonicState, my: number): void {
+  const steps = Math.max(1, Math.round(my));
+  for (let i = 0; i < steps; i++) applyErosion(t, my / steps);
+}
+
 // --- snapshots for keyframes -------------------------------------------------
 
 export interface Snapshot {
