@@ -5,6 +5,7 @@
 // Only + - * / sqrt are used (no trigonometry), so results are identical on every machine.
 
 import { cellKm } from './climate';
+import { earthPotential, isEarthSeed } from './earth';
 import { PLATE_LAYOUT_FREQUENCY, type Plate } from './plates';
 import { LatticeIndex } from './latticeIndex';
 import { nearestInPool, randomDirection, randomMember } from './sample';
@@ -340,11 +341,13 @@ export function applyGenerate(state: WorldState, edit: GenerateEdit, plateOf?: I
   const n = lattice.vertexCount;
   // Given the plates as they are now, the land is laid out to suit them.
   const plateContext = plateOf ? { lattice, info: plateInfo(lattice, plateOf) } : undefined;
-  const potential = landPotential(lattice.positions, n, edit, plateContext);
+  // The "earth" seed draws the real continents, with the coast where it is on Earth whatever land cover is chosen.
+  const earth = isEarthSeed(edit.seed);
+  const potential = earth ? earthPotential(lattice) : landPotential(lattice.positions, n, edit, plateContext);
 
   // The land cover is set exactly: sea level goes where the chosen share of points lies above it.
   const sorted = Float64Array.from(potential).sort();
-  const cut = sorted[Math.min(n - 1, Math.max(0, Math.floor((1 - edit.landFraction) * n)))]!;
+  const cut = earth ? 0 : sorted[Math.min(n - 1, Math.max(0, Math.floor((1 - edit.landFraction) * n)))]!;
 
   // Thickness rises smoothly from sea floor to inland over the shelf width, crossing sea level at `cut`.
   const crossing = inverseSmoothstep((SEA_LEVEL_THICKNESS - OCEAN_THICKNESS) / (INTERIOR_THICKNESS - OCEAN_THICKNESS));

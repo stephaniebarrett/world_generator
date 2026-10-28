@@ -12,6 +12,7 @@
 // Only + - * / sqrt and integer ops are used, with fixed iteration order.
 
 import { buildLattice, type Lattice } from './lattice';
+import { earthPlates, isEarthSeed } from './earth';
 import { LatticeIndex } from './latticeIndex';
 import { createRng, type Rng } from './rng';
 import { elevationFromThickness } from './crust';
@@ -284,6 +285,7 @@ export function layoutPlates(lattice: Lattice, seed: string, options: PlateOptio
  * the layout as it was.
  */
 function layoutPlatesOn(lattice: Lattice, seed: string, options: PlateOptions): PlateSetup {
+  if (isEarthSeed(seed)) return earthPlates(lattice); // the real plates, for fun
   const n = lattice.vertexCount;
   const rng = createRng(seed).fork('plates');
   const target = options.targetCount ?? 8 + rng.int(5);

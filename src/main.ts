@@ -1,3 +1,4 @@
+import { isEarthSeed } from './sim/earth';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { DETAIL_PRESETS, buildLattice, vertexCountFor, type DetailPreset, type Lattice } from './sim/lattice';
@@ -48,6 +49,13 @@ const strengthReadout = $<HTMLSpanElement>('strengthReadout');
 const landStyleSelect = $<HTMLSelectElement>('landStyle');
 const landCoverInput = $<HTMLInputElement>('landCover');
 const coverReadout = $<HTMLSpanElement>('coverReadout');
+
+/** The Earth seed draws the real continents, so the style and cover controls have nothing to do; they are hidden then. */
+function updateLandControls(): void {
+  const earth = isEarthSeed(seedInput.value);
+  landStyleSelect.closest('label')!.hidden = earth;
+  landCoverInput.closest('label')!.hidden = earth;
+}
 const generateButton = $<HTMLButtonElement>('generate');
 const exaggerationInput = $<HTMLInputElement>('exaggeration');
 const exagReadout = $<HTMLSpanElement>('exagReadout');
@@ -138,6 +146,7 @@ function refreshInfo(): void {
 
 /** Start a fresh world from the seed and detail boxes. `save` is false when a link opened it, so a link never overwrites saved work. */
 function newWorld(save = true): void {
+  updateLandControls();
   startWorld(newRecipe(seedInput.value, DETAIL_PRESETS[detailSelect.value as DetailPreset]));
   history.replaceState(null, '', `?seed=${encodeURIComponent(recipe.seed)}&detail=${detailSelect.value}`);
   if (save) scheduleSave();
@@ -1386,6 +1395,7 @@ function scheduleSave(): void {
 function loadWorldFile(file: WorldFile): void {
   applyPlanet(file.planet);
   seedInput.value = file.recipe.seed;
+  updateLandControls();
   const preset = (Object.keys(DETAIL_PRESETS) as DetailPreset[]).find((k) => DETAIL_PRESETS[k] === file.recipe.frequency);
   // A file made at a detail level that is no longer offered (such as the old 320k and 580k presets) still opens at its own detail.
   detailSelect.querySelector('option[value="custom"]')?.remove();
@@ -1473,6 +1483,7 @@ async function boot(): Promise<void> {
   if (urlSeed) {
     // A shared link carries just a seed (and detail), so it opens a fresh world.
     seedInput.value = urlSeed;
+    updateLandControls();
     const detail = params.get('detail');
     if (detail && detail in DETAIL_PRESETS) detailSelect.value = detail;
     newWorld(false); // saved only once the person edits it
