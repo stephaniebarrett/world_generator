@@ -45,6 +45,42 @@ const EARTH_RADIUS_KM = 6371;
 const RIFT_THINNING = 150;
 const RIPPLE = 60;
 const RIPPLE_FREQUENCY = 40;
+/**
+ * How fast two plates close or open on each other, in rad/My, at which their effect reaches its usual distance (about 6 cm a year).
+ * Slower than this the effect stays closer to the border; faster, it spreads further: a slow collision piles its mountains close
+ * by, a fast one affects crust well away from it.
+ */
+const REF_CLOSING = 0.01;
+/** How far the direct effect of a border reaches, as a multiple of REACH, at the slowest and fastest closing speeds (see REF_CLOSING). */
+const REACH_SCALE: readonly [number, number] = [0.6, 1.5];
+/**
+ * Crust squeezed out of a continental collision piles up over a zone stretched along the way the plates were closing: this many times
+ * as far forward and back (into both plates) as sideways along the border, so a collision shortens the crust well ahead of it and behind it,
+ * not only along the line where it happened.
+ */
+const COLLISION_FORWARD_STRETCH = 2.0;
+/**
+ * Share of the uplift a collision gives the crust right at the border that is carried away from it instead, along the way the plates
+ * are closing: the crust ahead of and behind the border is shortened too, over the same stretched zone. Only the width is spread: the
+ * total uplift is the same.
+ */
+const COLLISION_CARRIED_SHARE = 0.55;
+/**
+ * How much of a collision's pile-up reaches a point at offset (dx, dy, dz) from where the crust was squeezed. The zone is an ellipse
+ * (flat-topped, so a good share reaches its far side): `radius` along the border and `forward` (further) in the direction (fx, fy, fz) the
+ * plates were closing, both ways. 0 outside it.
+ */
+export function pileWeight(dx: number, dy: number, dz: number, fx: number, fy: number, fz: number, radius: number, forward: number): number {
+  const d2 = dx * dx + dy * dy + dz * dz;
+  if (d2 >= forward * forward) return 0;
+  const ahead = dx * fx + dy * fy + dz * fz;
+  const e2 = (ahead * ahead) / (forward * forward) + Math.max(0, d2 - ahead * ahead) / (radius * radius);
+  return e2 >= 1 ? 0 : 1 - e2;
+}
+/** The same for how far consumed crust is piled in a continental collision, and for arc magma above a slab. */
+const COLLISION_SPREAD_SCALE: readonly [number, number] = [0.35, 2];
+const ARC_SPREAD_SCALE: readonly [number, number] = [0.7, 1.5];
+const speedScale = (speed: number, range: readonly [number, number]): number => Math.min(range[1], Math.max(range[0], speed / REF_CLOSING));
 /** Effect reach and overlap/hole distances, in multiples of the mean point spacing. */
 const REACH = 1.6;
 const OVERLAP = 0.45;
@@ -414,7 +450,8 @@ export function stepTectonics(t: TectonicState, dt: number): void {
   const plateDensity = new Float64Array(plateCount);
   for (let p = 0; p < plateCount; p++) plateDensity[p] = densN[p] ? densSum[p]! / densN[p]! : 0;
   const reach = REACH * spacing;
-  const reach2 = reach * reach;
+  const reachMax = reach * REACH_SCALE[1]; // the furthest any border effect goes, which the search grid must cover
+  const reachMax2 = reachMax * reachMax;
   const overlap = OVERLAP * spacing;
   const grid = buildGrid(pos, n, CELL * spacing, plate);
   const dead = new Uint8Array(n);
@@ -423,6 +460,11 @@ export function stepTectonics(t: TectonicState, dt: number): void {
   const erupted = new Uint8Array(n); // points that received arc magma this step
   const deadKind = new Uint8Array(n); // how a consumed point's crust is handled: 1 continental collision, 2 subduction
   const deadTo = new Int32Array(n); // for subduction: the plate that overrides it
+  const carryGain = new Float64Array(n); // uplift a collision gave a point that is carried away along the closing direction
+  const carrySpeed = new Float64Array(n);
+  const carryDir = new Float64Array(n * 3);
+  const deadSpeed = new Float64Array(n); // how fast the plates were closing where a point was consumed
+  const deadDir = new Float64Array(n * 3); // and the surface direction they were moving in (unit)
 
   for (let i = 0; i < n; i++) {
     const pi = plate[i]!;
@@ -433,6 +475,7 @@ export function stepTectonics(t: TectonicState, dt: number): void {
     const vix = wiy * pz - wiz * py, viy = wiz * px - wix * pz, viz = wix * py - wiy * px;
 
     let collide = 0, arc = 0, rift = 0, ripple = 0, slip = 0;
+    let pushWeight = 0, pushSpeed = 0, pushX = 0, pushY = 0, pushZ = 0; // the strongest collision pushing on this point: how hard, how fast, which way
 
     // Well inside a plate nothing is near enough to interact with (every neighbour is skipped as the same plate).
     if (onlyPlateNear(grid, px, py, pz, pi)) {
@@ -446,7 +489,7 @@ export function stepTectonics(t: TectonicState, dt: number): void {
       const qx = pos[j * 3]!, qy = pos[j * 3 + 1]!, qz = pos[j * 3 + 2]!;
       const dx = qx - px, dy = qy - py, dz = qz - pz;
       const d2 = dx * dx + dy * dy + dz * dz;
-      if (d2 >= reach2 || d2 === 0) return;
+      if (d2 >= reachMax2 || d2 === 0) return;
       const dist = Math.sqrt(d2);
 
       // Direction toward j along the surface at i.
@@ -466,8 +509,10 @@ export function stepTectonics(t: TectonicState, dt: number): void {
       const rt2 = rtx * rtx + rty * rty + rtz * rtz;
       const along = Math.sqrt(Math.max(0, rt2 - closing * closing));
 
-      const f = 1 - dist / reach;
-      const w = f * f;
+      // The faster the plates close (or open), the further the effect reaches, and the more it is spread: the same crust over a wider belt.
+      const reachScale = speedScale(Math.sqrt(rx * rx + ry * ry + rz * rz), REACH_SCALE); // the plates' whole relative speed, sliding included
+      const f = Math.max(0, 1 - dist / (reach * reachScale));
+      const w = (f * f) / reachScale;
       const densJ = densityOf(thickness[j]!, age[j]!);
       const bothBuoyant = dens < BUOYANT_DENSITY && densJ < BUOYANT_DENSITY;
 
@@ -488,16 +533,30 @@ export function stepTectonics(t: TectonicState, dt: number): void {
       if (loses && dist - approach < overlap) {
         // Overlapping, or about to be: this point is consumed, whichever way the plates are moving.
         dead[i] = 1;
+        if (closing > deadSpeed[i]!) {
+          // How fast the plates were closing here sets how far the consumed crust is spread, and the way they were moving sets which way.
+          deadSpeed[i] = closing;
+          const rl = Math.sqrt(rt2);
+          const fx = rl > 1e-12 ? rtx / rl : tx, fy = rl > 1e-12 ? rty / rl : ty, fz = rl > 1e-12 ? rtz / rl : tz;
+          deadDir[i * 3] = fx; deadDir[i * 3 + 1] = fy; deadDir[i * 3 + 2] = fz;
+        }
         // What happens to the crust that goes is settled below, once the whole border is known.
         if (deadKind[i] === 0) { deadKind[i] = bothBuoyant ? 1 : 2; deadTo[i] = pj; }
       }
-      {
+      if (dist < reach) {
         const lo = Math.min(pi, pj), hi = Math.max(pi, pj);
         touches[lo * plateCount + hi] = touches[lo * plateCount + hi]! + 1;
       }
       if (bothBuoyant && closing > 0 && dist < reach) {
         const lo = Math.min(pi, pj), hi = Math.max(pi, pj);
         contacts[lo * plateCount + hi] = contacts[lo * plateCount + hi]! + 1;
+      }
+      if (bothBuoyant && closing * w > pushWeight) {
+        // Remember the strongest collision pushing on this point, so its uplift can be carried the way the plates are moving.
+        pushWeight = closing * w;
+        pushSpeed = closing;
+        const rl = Math.sqrt(rt2);
+        pushX = rl > 1e-12 ? rtx / rl : tx; pushY = rl > 1e-12 ? rty / rl : ty; pushZ = rl > 1e-12 ? rtz / rl : tz;
       }
       if (closing > 0) {
         if (!loses) {
@@ -521,7 +580,15 @@ export function stepTectonics(t: TectonicState, dt: number): void {
     // Weak crust (sediment, young belts) deforms readily; old cratons resist, so mountains rise at their margins, not through them.
     const weak = ROCKS[crust.rock[i]!]!.weakness * (1 + SCAR_WEAKENING * crust.scar[i]!);
     scarGain[i] = SCAR_RATE * dt * (slip + collide);
-    delta[i] = delta[i]! + dt * ((COLLISION_UPLIFT * collide + ARC_UPLIFT * arc - RIFT_THINNING * rift) * weak + RIPPLE * ripple);
+    // Some of the collision's uplift is carried off along the way the plates are closing (see below); the rest stays where it is.
+    const squeeze = dt * COLLISION_UPLIFT * collide * weak;
+    const carried = pushWeight > 0 ? COLLISION_CARRIED_SHARE * squeeze : 0;
+    if (carried > 0) {
+      carryGain[i] = carried;
+      carrySpeed[i] = pushSpeed;
+      carryDir[i * 3] = pushX; carryDir[i * 3 + 1] = pushY; carryDir[i * 3 + 2] = pushZ;
+    }
+    delta[i] = delta[i]! + dt * ((ARC_UPLIFT * arc - RIFT_THINNING * rift) * weak + RIPPLE * ripple) + squeeze - carried;
   }
 
   // Hotspots: plumes fixed in the mantle build volcanoes on whatever crust drifts over them.
@@ -543,24 +610,29 @@ export function stepTectonics(t: TectonicState, dt: number): void {
 
   // Spread the consumed crust. Continental crust that is squeezed out piles into a broad belt on both sides of the collision;
   // the share of a slab that returns as magma builds a volcanic belt on the overriding plate.
-  const nearReach = Math.max(COLLISION_REACH_KM, ARC_REACH_KM) / EARTH_RADIUS_KM;
+  const nearReach = Math.max(COLLISION_REACH_KM * COLLISION_SPREAD_SCALE[1] * COLLISION_FORWARD_STRETCH, ARC_REACH_KM * ARC_SPREAD_SCALE[1]) / EARTH_RADIUS_KM;
   const wide = buildGrid(pos, n, nearReach);
   for (let i = 0; i < n; i++) {
     const kind = deadKind[i]!;
     if (kind === 0) continue;
-    const radius = (kind === 1 ? COLLISION_REACH_KM : ARC_REACH_KM) / EARTH_RADIUS_KM;
-    const r2 = radius * radius;
+    // A slow collision piles the crust close by; a fast one spreads it over a wider belt.
+    const radius = (kind === 1 ? COLLISION_REACH_KM * speedScale(deadSpeed[i]!, COLLISION_SPREAD_SCALE) : ARC_REACH_KM * speedScale(deadSpeed[i]!, ARC_SPREAD_SCALE)) / EARTH_RADIUS_KM;
     const px = pos[i * 3]!, py = pos[i * 3 + 1]!, pz = pos[i * 3 + 2]!;
     const target = deadTo[i]!;
+    // A collision's pile-up is an ellipse: `radius` sideways along the border, and further forward and back along the way the plates were moving.
+    const forward = kind === 1 ? radius * COLLISION_FORWARD_STRETCH : radius;
+    const fx = deadDir[i * 3]!, fy = deadDir[i * 3 + 1]!, fz = deadDir[i * 3 + 2]!;
     const weigh = (k: number): number => {
       if (dead[k]) return 0;
       if (kind === 2 && plate[k] !== target) return 0;
       if (kind === 1 && thickness[k]! < FLOW_MIN) return 0; // only continental crust takes part
       const dx = pos[k * 3]! - px, dy = pos[k * 3 + 1]! - py, dz = pos[k * 3 + 2]! - pz;
+      if (kind === 1) return pileWeight(dx, dy, dz, fx, fy, fz, radius, forward) * ROCKS[crust.rock[k]!]!.weakness;
+      // Arc magma stays near its slab, spread evenly in every direction.
       const d2 = dx * dx + dy * dy + dz * dz;
-      if (d2 >= r2) return 0;
+      if (d2 >= radius * radius) return 0;
       const f = 1 - Math.sqrt(d2) / radius;
-      return f * f * (kind === 1 ? ROCKS[crust.rock[k]!]!.weakness : 1);
+      return f * f;
     };
     let total = 0;
     forEachNear(wide, px, py, pz, (k) => { total += weigh(k); });
@@ -572,6 +644,30 @@ export function stepTectonics(t: TectonicState, dt: number): void {
       const add = (mass * w) / total;
       delta[k] = delta[k]! + add;
       if (kind === 2 && add > 0.02) erupted[k] = 1;
+    });
+  }
+
+  // Carry the collision uplift ahead of and behind the border. Each point that was pushed up by a collision keeps part of it and hands the
+  // rest to the continental crust around it, over the stretched zone (wider when the plates close faster), so the belt is spread forward and
+  // back and not only along the line where the plates meet.
+  for (let i = 0; i < n; i++) {
+    const gain = carryGain[i]!;
+    if (gain === 0) continue;
+    const radius = (COLLISION_REACH_KM * speedScale(carrySpeed[i]!, COLLISION_SPREAD_SCALE)) / EARTH_RADIUS_KM;
+    const forward = radius * COLLISION_FORWARD_STRETCH;
+    const fx = carryDir[i * 3]!, fy = carryDir[i * 3 + 1]!, fz = carryDir[i * 3 + 2]!;
+    const px = pos[i * 3]!, py = pos[i * 3 + 1]!, pz = pos[i * 3 + 2]!;
+    const weigh = (k: number): number => {
+      if (dead[k] || thickness[k]! < FLOW_MIN) return 0;
+      const dx = pos[k * 3]! - px, dy = pos[k * 3 + 1]! - py, dz = pos[k * 3 + 2]! - pz;
+      return pileWeight(dx, dy, dz, fx, fy, fz, radius, forward) * ROCKS[crust.rock[k]!]!.weakness;
+    };
+    let total = 0;
+    forEachNear(wide, px, py, pz, (k) => { total += weigh(k); });
+    if (total === 0) { delta[i] = delta[i]! + gain; continue; } // nowhere to carry it: it stays
+    forEachNear(wide, px, py, pz, (k) => {
+      const w = weigh(k);
+      if (w !== 0) delta[k] = delta[k]! + (gain * w) / total;
     });
   }
 

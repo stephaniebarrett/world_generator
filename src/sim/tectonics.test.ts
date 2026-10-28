@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildLattice } from './lattice';
 import { generatePlates, type PlateSetup } from './plates';
-import { createTectonics, densityOf, resample, restore, snapshot, stepTectonics, type TectonicState } from './tectonics';
+import { createTectonics, densityOf, pileWeight, resample, restore, snapshot, stepTectonics, type TectonicState } from './tectonics';
 import { prepareWorld } from './setup';
 import { createState, newRecipe, type BrushEdit, type WorldState } from './world';
 
@@ -100,6 +100,38 @@ describe('tectonics', () => {
     for (let i = 0; i < t.crust.count; i++) {
       if (Math.abs(t.crust.pos[i * 3 + 2]!) > 0.5) expect(Math.abs(t.crust.thickness[i]! - 35)).toBeLessThan(0.5);
     }
+  });
+
+  it('spreads a fast collision over a wider belt than a slow one', () => {
+    // The same time for each, a fifth of the speed for the slow one.
+    const beltWidth = (speed: number, steps: number): number => {
+      const t = createTectonics(world(35), hemispheres(-speed, speed));
+      run(t, steps);
+      // How far from the fault, on average, the crust has been piled up or thinned (weighted by how much).
+      let sum = 0, weight = 0;
+      for (let i = 0; i < t.crust.count; i++) {
+        const change = Math.abs(t.crust.thickness[i]! - 35);
+        sum += change * Math.abs(t.crust.pos[i * 3 + 2]!);
+        weight += change;
+      }
+      return sum / weight;
+    };
+    const slow = beltWidth(SPEED / 5, 25);
+    const fast = beltWidth(SPEED, 25);
+    expect(fast).toBeGreaterThan(slow * 1.15);
+  });
+
+  it('piles a collision up further forward and back than along the border', () => {
+    const radius = 0.14, forward = 0.28;
+    // Closing along z: the same distance ahead of, behind, and along the border from the collision.
+    const ahead = pileWeight(0, 0, 0.2, 0, 0, 1, radius, forward);
+    const behind = pileWeight(0, 0, -0.2, 0, 0, 1, radius, forward);
+    const along = pileWeight(0.2, 0, 0, 0, 0, 1, radius, forward);
+    expect(ahead).toBeGreaterThan(0);
+    expect(behind).toBeCloseTo(ahead, 12);
+    expect(along).toBe(0); // 0.2 is past the sideways reach of 0.14
+    expect(pileWeight(0, 0, 0.3, 0, 0, 1, radius, forward)).toBe(0); // and the forward zone ends at 0.28
+    expect(pileWeight(0, 0, 0, 0, 0, 1, radius, forward)).toBe(1);
   });
 
   it('creates new seafloor where plates pull apart, with no holes left', () => {
